@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPAO 채널별 가격 모니터링</title>
+<style>
+/* ── 변수 ── */
+:root {
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --border: #e2e5ea;
+  --text: #111827;
+  --text-sub: #374151;
+  --text-muted: #9ca3af;
+  --lowest: #059669;
+  --alert: #dc2626;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+}
+
+/* ── 리셋 ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ══════════════════════════════
+   전체 레이아웃 — flex column, 뷰포트 꽉 채움
+   body 자체는 스크롤 없음. 테이블 영역만 스크롤.
+══════════════════════════════ */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  font-family: 'Pretendard', 'Segoe UI', -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  font-size: 13px; line-height: 1.5;
+  display: flex; flex-direction: column;
+}
+
+/* ══════════════════════════════
+   헤더
+══════════════════════════════ */
+.app-header {
+  flex-shrink: 0;
+  background: #111827;
+  height: 52px;
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  z-index: 200;
+}
+.logo { font-size: 1rem; font-weight: 800; letter-spacing: 1px; color: #fff; white-space: nowrap; }
+.logo em { color: #f472b6; font-style: normal; }
+
+.ch-pills { display: flex; gap: 6px; align-items: center; }
+.ch-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600;
+  border: 1px solid; white-space: nowrap;
+}
+.ch-pill.off { opacity: .3; }
+
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.alert-pill {
+  display: none; align-items: center; gap: 5px;
+  background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5;
+  font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+  cursor: pointer;
+}
+.alert-pill.on { display: inline-flex; }
+.win-pill {
+  display: none; align-items: center; gap: 5px;
+  background: #f0fdf4; color: #16a34a; border: 1px solid #86efac;
+  font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+  cursor: pointer;
+}
+.win-pill.on { display: inline-flex; }
+.ts { font-size: 0.68rem; color: #6b7280; }
+
+/* ══════════════════════════════
+   툴바
+══════════════════════════════ */
+.toolbar {
+  flex-shrink: 0;
+  background: #fff; border-bottom: 1px solid var(--border);
+  height: 48px;
+  display: flex; align-items: center; padding: 0 20px; gap: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  z-index: 199;
+}
+.search {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; width: 220px;
+}
+.search input { border: none; background: none; outline: none; font-size: 0.82rem; width: 100%; color: var(--text); }
+.search svg { color: var(--text-muted); flex-shrink: 0; }
+
+.tbtn {
+  border: 1px solid var(--border); background: #fff; border-radius: 6px;
+  padding: 4px 10px; font-size: 0.75rem; font-weight: 500;
+  cursor: pointer; color: var(--text-sub); transition: all .12s; white-space: nowrap;
+}
+.tbtn:hover { border-color: #6b7280; color: var(--text); }
+.tbtn.on { background: #111827; color: #fff; border-color: #111827; }
+.tbtn.on-alert { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+.tbtn.on-win   { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
+
+/* 시즌 필터 칩 */
+.season-chips { display: flex; gap: 3px; align-items: center; flex-wrap: nowrap; }
+.s-chip {
+  padding: 3px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 700;
+  border: 1px solid transparent; cursor: pointer; transition: all .12s;
+  background: #f3f4f6; color: #6b7280;
+}
+.s-chip:hover { background: #e5e7eb; }
+.s-chip.active { color: #fff; border-color: transparent; }
+/* 연도 헤더 칩 */
+.s-chip-yr { font-weight: 800; }
+.s-chip-yr.partial { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
+/* 세부 시즌 칩 (G1, G2, GA …) */
+.s-chip-sub { padding: 2px 6px; font-size: 0.68rem; border-radius: 8px; margin-left: -1px; }
+/* 전체 버튼 */
+.s-chip-clear { font-size: .68rem; color: #9ca3af; margin-left: 2px; }
+/* 연도별 활성 색상 — .s-chip-yr / .s-chip-sub 모두 .s-chip 상속이므로 동일 선택자로 커버 */
+.s-chip[data-year="2026"].active { background: #7c3aed; }
+.s-chip[data-year="2025"].active { background: #2563eb; }
+.s-chip[data-year="2024"].active { background: #0891b2; }
+.s-chip[data-year="2023"].active { background: #059669; }
+.s-chip[data-year="2022"].active { background: #d97706; }
+
+.divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+select.tbtn { appearance: none; padding-right: 22px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 7px center; }
+
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.count { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+.refresh {
+  display: flex; align-items: center; gap: 5px;
+  background: #111827; color: #fff; border: none; border-radius: 6px;
+  padding: 5px 12px; font-size: 0.78rem; font-weight: 500;
+  cursor: pointer; transition: background .12s;
+}
+.refresh:hover { background: #1f2937; }
+.refresh:disabled { background: #9ca3af; cursor: not-allowed; }
+.spin { animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+
+/* ══════════════════════════════
+   관심목록 패널
+══════════════════════════════ */
+.watch-bar {
+  flex-shrink: 0;
+  display: none;
+  background: #faf5ff;
+  border-bottom: 2px solid #e9d5ff;
+  padding: 10px 20px 12px;
+}
+.watch-bar.on { display: block; }
+.watch-input-row {
+  display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;
+}
+.watch-input-row textarea {
+  flex: 1; border: 1px solid #d8b4fe; border-radius: 6px;
+  padding: 7px 10px; font-size: 0.8rem; resize: vertical; min-height: 52px;
+  font-family: inherit; outline: none; color: var(--text); background: #fff;
+  line-height: 1.5;
+}
+.watch-input-row textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px #7c3aed22; }
+.watch-input-row textarea::placeholder { color: #c4b5fd; font-size: .75rem; }
+.watch-add-btn {
+  background: #7c3aed; color: #fff; border: none; border-radius: 6px;
+  padding: 7px 18px; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
+}
+.watch-add-btn:hover { background: #6d28d9; }
+.watch-chips-row {
+  display: flex; flex-wrap: wrap; gap: 5px; min-height: 22px;
+}
+.watch-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #ede9fe; color: #5b21b6;
+  border: 1px solid #c4b5fd; border-radius: 5px;
+  padding: 2px 6px 2px 8px;
+  font-family: 'Courier New', monospace; font-size: 0.72rem; font-weight: 700;
+}
+.watch-chip.not-found { background: #f3f4f6; color: #9ca3af; border-color: #e5e7eb; }
+.watch-chip .miss { font-size: .6rem; font-weight: 400; opacity: .7; margin-left: 2px; font-family: inherit; }
+.watch-chip-del {
+  background: none; border: none; cursor: pointer;
+  color: #a78bfa; padding: 0 0 0 3px; font-size: 1rem; line-height: 1;
+}
+.watch-chip-del:hover { color: #dc2626; }
+.watch-footer {
+  display: flex; align-items: center; justify-content: space-between; margin-top: 8px;
+}
+.watch-count { font-size: 0.72rem; color: #7c3aed; font-weight: 600; }
+.watch-clear-btn {
+  background: none; border: 1px solid #fca5a5; color: #dc2626;
+  border-radius: 5px; padding: 2px 10px; font-size: 0.72rem; cursor: pointer;
+}
+.watch-clear-btn:hover { background: #fef2f2; }
+.watch-empty-msg { font-size: .75rem; color: #c4b5fd; font-style: italic; }
+
+/* ══════════════════════════════
+   알림 배너 — flex-shrink:0
+══════════════════════════════ */
+.alert-bar {
+  flex-shrink: 0;
+  display: none;
+  background: #fff9f9; border-bottom: 2px solid #fca5a5;
+  padding: 8px 20px;
+}
+.alert-bar.on { display: block; }
+.alert-bar-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 700; color: #dc2626; cursor: pointer;
+}
+.alert-bar-head .toggle { margin-left: auto; font-size: 0.7rem; color: var(--text-muted); font-weight: 400; }
+.alert-chips { display: none; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.alert-chips.open { display: flex; }
+.ac {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #fff; border: 1px solid #fecaca; border-radius: 5px;
+  padding: 3px 8px; font-size: 0.72rem;
+}
+.ac .code { font-family: monospace; font-weight: 700; color: #b91c1c; }
+.ac .info { color: var(--text-muted); }
+
+/* ── 자사몰 최저 배너 ── */
+.win-bar {
+  flex-shrink: 0;
+  display: none;
+  background: #f6fef9; border-bottom: 2px solid #86efac;
+  padding: 8px 20px;
+}
+.win-bar.on { display: block; }
+.win-bar-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 700; color: #16a34a; cursor: pointer;
+}
+.win-bar-head .toggle { margin-left: auto; font-size: 0.7rem; color: var(--text-muted); font-weight: 400; }
+.win-chips { display: none; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.win-chips.open { display: flex; }
+.wc {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #fff; border: 1px solid #bbf7d0; border-radius: 5px;
+  padding: 3px 8px; font-size: 0.72rem;
+}
+.wc .code { font-family: monospace; font-weight: 700; color: #15803d; }
+.wc .info { color: var(--text-muted); }
+
+/* ══════════════════════════════
+   테이블 영역 — 나머지 높이 전부 차지, 단일 스크롤 컨테이너
+══════════════════════════════ */
+.table-outer {
+  flex: 1;
+  min-height: 0;          /* flex child 필수 */
+  overflow: auto;         /* 세로+가로 모두 여기서 스크롤 */
+  background: var(--bg);
+}
+
+/* 내부 패딩 래퍼 */
+.table-pad {
+  padding: 0 20px 24px;
+}
+
+table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  background: var(--surface); min-width: 960px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-top: 0;          /* 헤더가 top:0에 딱 붙어야 함 */
+}
+
+/* ══════════════════════════════
+   thead sticky — .table-outer 기준 top:0
+══════════════════════════════ */
+thead th {
+  position: sticky;
+  top: 0;                 /* 스크롤 컨테이너(.table-outer) 기준 */
+  background: #1e293b;
+  color: #94a3b8;
+  padding: 10px 12px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: .4px;
+  white-space: nowrap; text-align: left;
+  border-bottom: 2px solid #334155;
+  cursor: pointer; user-select: none;
+  z-index: 10;
+}
+thead th:hover { color: #e2e8f0; }
+thead th.asc::after  { content: " ▲"; font-size: .6rem; color: #f472b6; }
+thead th.desc::after { content: " ▼"; font-size: .6rem; color: #f472b6; }
+
+/* ── 채널 컬러 헤더 ── */
+.th-mu  { color: #94a3b8; }
+.th-zz  { color: #f9a8d4; }
+.th-of  { color: #7dd3fc; }
+.th-el  { color: #fdba74; }
+.th-nv  { color: #4ade80; }
+
+/* ── 채널 그룹 구분선 ──
+   채널이 바뀌는 첫 번째 컬럼에 굵은 왼쪽 보더를 추가해
+   시각적으로 구역을 나눈다.
+── */
+thead th.grp-sep {
+  border-left: 2px solid #475569;
+}
+tbody td.grp-sep {
+  border-left: 2px solid #e2e8f0;
+}
+
+/* ── 자사몰 열 헤더 구분 강조 ── */
+thead th.th-of {
+  background: #1e3a5f;   /* 자사몰 영역 — 블루 계열 강조 */
+}
+
+/* ── 바디 행 ── */
+tbody tr { border-bottom: 1px solid #f1f5f9; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: #f8fafc; }
+tbody tr.dim td { opacity: .38; }
+
+/* ── 가격 차이 경고 행 — 자사몰 vs 타채널 ── */
+tbody tr.price-alert td { background: #fff5f5; }
+tbody tr.price-alert td.sticky-season,
+tbody tr.price-alert td.sticky-code,
+tbody tr.price-alert td.sticky-name { background: #fff5f5; }
+tbody tr.price-alert:hover td { background: #fee2e2; }
+tbody tr.price-alert:hover td.sticky-season,
+tbody tr.price-alert:hover td.sticky-code,
+tbody tr.price-alert:hover td.sticky-name { background: #fee2e2; }
+
+/* ── 자사몰 최저가 행 — 연한 초록 ── */
+tbody tr.price-win td { background: #f0fdf4; }
+tbody tr.price-win td.sticky-season,
+tbody tr.price-win td.sticky-code,
+tbody tr.price-win td.sticky-name { background: #f0fdf4; }
+tbody tr.price-win:hover td { background: #dcfce7; }
+tbody tr.price-win:hover td.sticky-season,
+tbody tr.price-win:hover td.sticky-code,
+tbody tr.price-win:hover td.sticky-name { background: #dcfce7; }
+
+/* ── 공통 td ── */
+td { padding: 8px 12px; vertical-align: middle; }
+
+/* ══════════════════════════════
+   좌측 sticky 컬럼
+   thead th도 left+top 모두 sticky → z-index 높게
+══════════════════════════════ */
+
+/* 시즌: left=0, width=64px */
+th.sticky-season, td.sticky-season {
+  position: sticky; left: 0;
+}
+th.sticky-season {
+  background: #1e293b; width: 64px;
+  z-index: 20;  /* top+left 교차 → 가장 높게 */
+}
+td.sticky-season {
+  background: #fff; width: 64px;
+  border-right: 1px solid #f1f5f9;
+  z-index: 5;
+}
+tbody tr:hover td.sticky-season { background: #f8fafc; }
+
+/* 스타일코드: left=64px, width=126px */
+th.sticky-code, td.sticky-code {
+  position: sticky; left: 64px;
+}
+th.sticky-code {
+  background: #1e293b; width: 126px;
+  z-index: 20;
+}
+td.sticky-code {
+  background: #fff; width: 126px;
+  border-right: 1px solid #f1f5f9;
+  z-index: 5;
+}
+tbody tr:hover td.sticky-code { background: #f8fafc; }
+
+/* 스타일명: left=190px */
+th.sticky-name, td.sticky-name {
+  position: sticky; left: 190px;
+  box-shadow: 3px 0 8px -3px rgba(0,0,0,.1);
+}
+th.sticky-name {
+  background: #1e293b; min-width: 180px;
+  z-index: 20;
+}
+td.sticky-name {
+  background: #fff; min-width: 180px;
+  z-index: 5;
+}
+tbody tr:hover td.sticky-name { background: #f8fafc; }
+
+/* ── 시즌 배지 ── */
+.season-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 22px; border-radius: 5px;
+  font-family: 'Courier New', monospace; font-size: 0.72rem; font-weight: 800;
+  letter-spacing: .5px;
+}
+.sy-2026 { background: #ede9fe; color: #6d28d9; }
+.sy-2025 { background: #dbeafe; color: #1d4ed8; }
+.sy-2024 { background: #cffafe; color: #0e7490; }
+.sy-2023 { background: #d1fae5; color: #047857; }
+.sy-2022 { background: #fef3c7; color: #b45309; }
+.sy-old  { background: #f3f4f6; color: #6b7280; }
+
+/* ── 코드 ── */
+.code-text {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem; font-weight: 600; color: #475569;
+  letter-spacing: .3px;
+}
+
+/* ── 스타일명 ── */
+.name-link {
+  color: var(--text); text-decoration: none; font-size: 0.82rem; font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.name-link:hover { color: #4f46e5; text-decoration: underline; }
+
+/* ── 가격 셀 ── */
+.price-cell { min-width: 110px; }
+.pc-empty { color: #d1d5db; font-size: 0.78rem; text-align: center; }
+.pc-soldout .sb { display: inline-flex; align-items: center; justify-content: center; background: #f3f4f6; color: #9ca3af; border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 600; }
+
+.ch-price {
+  font-size: 0.88rem; font-weight: 700; color: var(--text);
+  display: flex; align-items: baseline; gap: 3px; line-height: 1.3;
+}
+.ch-price a { color: inherit; text-decoration: none; }
+.ch-price a:hover { text-decoration: underline; }
+.ch-price.is-low { color: var(--lowest); }
+.ch-price.is-alert { color: var(--alert); }
+
+.ch-normal { font-size: 0.7rem; color: #cbd5e1; text-decoration: line-through; margin-top: 1px; }
+.ch-rate { display: inline-flex; align-items: center; justify-content: center;
+  background: #fef3c7; color: #92400e; border-radius: 3px;
+  padding: 0 4px; font-size: 0.65rem; font-weight: 700; height: 16px; }
+.dot-low { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--lowest); flex-shrink: 0; margin-bottom: 1px; }
+
+/* ── 최저가 셀 ── */
+.best-price { font-size: 0.88rem; font-weight: 800; color: var(--lowest); }
+.best-ch { font-size: 0.68rem; color: #6b7280; margin-top: 1px; }
+.best-badge { display: inline-block; background: #d1fae5; color: #065f46; border-radius: 3px; padding: 0 4px; font-size: 0.65rem; font-weight: 700; }
+
+/* ── 로딩 ── */
+.loading { padding: 80px 0; text-align: center; color: var(--text-muted); }
+.loader { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: #334155; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 8px; }
+.empty { padding: 48px 0; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<!-- ══ 헤더 ══ -->
+<header class="app-header" id="app-header">
+  <div class="logo">SPAO <em>모니터링</em></div>
+  <div class="ch-pills" id="ch-pills"></div>
+  <div class="header-right">
+    <span class="alert-pill" id="alert-pill" onclick="activateFilter('walert')">
+      ⚠ <span id="alert-n">0</span>건 가격 이상
+    </span>
+    <span class="win-pill" id="win-pill" onclick="activateFilter('oflow')">
+      ✅ <span id="win-n">0</span>건 자사몰 최저
+    </span>
+    <span class="ts" id="ts">로딩 중...</span>
+  </div>
+</header>
+
+<!-- ══ 툴바 ══ -->
+<div class="toolbar" id="toolbar">
+  <div class="search">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="q" placeholder="스타일코드 · 상품명 검색">
+  </div>
+
+  <!-- 시즌 필터 -->
+  <div class="divider"></div>
+  <div class="season-chips" id="season-chips"></div>
+  <div class="divider"></div>
+
+  <!-- 기타 필터 -->
+  <button class="tbtn" id="btn-nostock" onclick="toggle('nostock')">품절 숨기기</button>
+  <button class="tbtn" id="btn-sale" onclick="toggle('sale')">할인만</button>
+  <button class="tbtn" id="btn-walert" onclick="toggle('walert')">⚠ 타채널이 낮은</button>
+  <button class="tbtn" id="btn-oflow" onclick="toggle('oflow')">✅ 자사몰이 낮은</button>
+  <button class="tbtn" id="btn-watch" onclick="toggleWatch()">📌 관심목록</button>
+
+  <div class="divider"></div>
+  <select class="tbtn" id="sort-sel" onchange="applySort(this.value)">
+    <option value="season-desc">시즌 최신순</option>
+    <option value="season-asc">시즌 과거순</option>
+    <option value="code">스타일코드순</option>
+    <option value="low-asc">최저가 낮은 순</option>
+    <option value="low-desc">최저가 높은 순</option>
+    <option value="gap-alert-desc">가격차 큰 순 (타채널↓)</option>
+    <option value="gap-win-desc">가격차 큰 순 (자사몰↓)</option>
+    <option value="of-asc">자사몰 낮은 순</option>
+    <option value="mu-asc">무신사 낮은 순</option>
+    <option value="zz-asc">지그재그 낮은 순</option>
+  </select>
+
+  <div class="tb-right">
+    <span class="count" id="count"></span>
+    <button class="refresh" id="ref" onclick="load()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+      새로고침
+    </button>
+  </div>
+</div>
+
+<!-- ══ 관심목록 패널 ══ -->
+<div class="watch-bar" id="watch-bar">
+  <div class="watch-input-row">
+    <textarea id="watch-input"
+      placeholder="스타일코드 입력 — 여러 개는 쉼표 또는 줄바꿈으로 구분&#10;예) SPTJG25G51, SPRWG25G01&#10;    SPABGA9A51"
+      onkeydown="if(event.ctrlKey&&event.key==='Enter')addWatchCodes()"></textarea>
+    <button class="watch-add-btn" onclick="addWatchCodes()">추가<br><span style="font-size:.6rem;opacity:.7">Ctrl+↵</span></button>
+  </div>
+  <div class="watch-chips-row" id="watch-chips"></div>
+  <div class="watch-footer">
+    <span class="watch-count" id="watch-count">저장된 코드 0개</span>
+    <button class="watch-clear-btn" onclick="clearWatchlist()">전체 삭제</button>
+  </div>
+</div>
+
+<!-- ══ 알림 배너 (타채널이 더 저렴) ══ -->
+<div class="alert-bar" id="alert-bar">
+  <div class="alert-bar-head" onclick="toggleAlerts()">
+    ⚠ 자사몰보다 낮은 채널 감지 — <span id="alert-bar-n">0</span>개
+    <span class="toggle" id="alert-toggle">펼치기 ▼</span>
+  </div>
+  <div class="alert-chips" id="alert-chips"></div>
+</div>
+
+<!-- ══ 자사몰 최저 배너 (자사몰이 더 저렴) ══ -->
+<div class="win-bar" id="win-bar">
+  <div class="win-bar-head" onclick="toggleWins()">
+    ✅ 자사몰이 최저가 — <span id="win-bar-n">0</span>개
+    <span class="toggle" id="win-toggle">펼치기 ▼</span>
+  </div>
+  <div class="win-chips" id="win-chips"></div>
+</div>
+
+<!-- ══ 테이블 스크롤 영역 ══ -->
+<div class="table-outer" id="table-outer">
+  <div class="table-pad">
+    <div class="loading" id="loading">
+      <span class="loader"></span>무신사 + 지그재그 전체 상품 수집 중...
+    </div>
+    <table id="tbl" style="display:none">
+      <thead>
+        <tr>
+          <th class="sticky-season" data-col="season">시즌</th>
+          <th class="sticky-code"   data-col="code">스타일코드</th>
+          <th class="sticky-name"   data-col="name">스타일명</th>
+          <th class="th-of grp-sep" data-col="of">자사몰</th>
+          <th class="th-mu grp-sep" data-col="mu">무신사</th>
+          <th class="th-zz grp-sep" data-col="zz">지그재그</th>
+          <th class="th-el grp-sep" data-col="el">이랜드몰</th>
+          <th class="th-nv grp-sep" data-col="nv">네이버</th>
+          <th class="grp-sep"       data-col="low">최저가</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════
+   상수 & 상태
+═══════════════════════════════ */
+const SEASON_YEAR = {};
+'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((c, i) => { SEASON_YEAR[c] = 2020 + i; });
+
+const CURRENT_YEAR = 2026;
+const CURRENT_LETTER = Object.entries(SEASON_YEAR).find(([,v]) => v === CURRENT_YEAR)?.[0] || 'G';
+
+const CH = {
+  musinsa:  { name: '무신사',   color: '#94a3b8' },
+  zigzag:   { name: '지그재그',  color: '#db2777' },
+  official: { name: '자사몰',   color: '#2563eb' },
+  eland:    { name: '이랜드몰',  color: '#d97706' },
+  naver:    { name: '네이버',   color: '#03C75A' },
+};
+
+let data    = [];
+let chList  = [];
+let sortCol = 'season';
+let sortDir = -1;
+const F = { nostock: false, sale: false, walert: false, oflow: false };
+
+// 자사몰이 최저가인지 판별
+function isOfficialLowest(p) {
+  const of = p.channels?.official;
+  if (!of || of.isSoldOut) return false;
+  if (p.lowestChannel !== 'official') return false;
+  // 다른 채널도 품절 아닌 데이터가 있어야 비교 의미 있음
+  return Object.entries(p.channels).some(([k, v]) => k !== 'official' && !v.isSoldOut);
+}
+let seasonFilter = new Set(); // 2자리 시즌 코드 저장 (G1, G2, GA …)
+
+// 관심목록
+let watchCodes  = new Set(); // 저장된 스타일코드
+let watchActive = false;     // 필터 ON/OFF
+
+function _loadWatchlist() {
+  try { watchCodes = new Set(JSON.parse(localStorage.getItem('spao_watchlist') || '[]')); }
+  catch(e) { watchCodes = new Set(); }
+  _syncWatchBtn();
+}
+function _saveWatchlist() {
+  localStorage.setItem('spao_watchlist', JSON.stringify([...watchCodes]));
+}
+function _syncWatchBtn() {
+  const n = watchCodes.size;
+  const btn = document.getElementById('btn-watch');
+  if (btn) btn.textContent = n > 0 ? `📌 관심목록 (${n})` : '📌 관심목록';
+}
+
+_loadWatchlist();
+
+/* ═══════════════════════════════
+   데이터 로드
+═══════════════════════════════ */
+async function load() {
+  const btn = document.getElementById('ref');
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> 수집 중`;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('tbl').style.display = 'none';
+
+  try {
+    const [pr, cr] = await Promise.all([fetch('/api/products'), fetch('/api/channels')]);
+    data   = await pr.json();
+    chList = await cr.json();
+    // 현재 연도 시즌 코드로 필터 초기화 (G1, G2, GA 등)
+    const curCodes = [...new Set(data.map(p => p.season).filter(s => s && s.length === 2 && s[0] === CURRENT_LETTER))];
+    seasonFilter = new Set(curCodes);
+    renderPills(_naverStatus);
+    renderSeasonChips();
+    // 자사몰 상태 폴링 시작
+    if (_spaoPollTimer) clearTimeout(_spaoPollTimer);
+    pollSpaoStatus();
+    // 네이버 상태 폴링 시작 (수집 중이면 완료 후 자동 갱신)
+    if (_naverPollTimer) clearTimeout(_naverPollTimer);
+    pollNaverStatus();
+    renderAlerts();
+    renderWatchPanel();
+    render();
+    document.getElementById('ts').textContent =
+      new Date().toLocaleString('ko-KR',{hour12:false}).replace(/\. /g,'. ') +
+      ' · ' + data.length + '개';
+  } catch(e) {
+    document.getElementById('loading').innerHTML = '⚠ 오류: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> 새로고침`;
+  }
+}
+
+/* ═══════════════════════════════
+   채널 pills
+═══════════════════════════════ */
+function renderPills(naverStatus) {
+  document.getElementById('ch-pills').innerHTML = chList.map(c => {
+    const cnt = data.filter(p => p.channels[c.id]).length;
+    let extra = '';
+    if (c.id === 'naver') {
+      if (naverStatus?.fetching) {
+        extra = `<span style="font-size:.6rem;opacity:.7;margin-left:3px;animation:pulse 1.2s ease-in-out infinite">수집중…</span>`;
+      } else if (cnt > 0) {
+        extra = `<span style="font-size:.65rem;opacity:.75;margin-left:2px">${cnt}</span>`;
+      } else if (naverStatus?.error) {
+        extra = `<span style="font-size:.6rem;opacity:.8;margin-left:3px;color:#ef4444" title="${naverStatus.error}">오류</span>`;
+      }
+    } else if (c.id === 'official') {
+      if (_spaoStatus?.fetching) {
+        extra = `<span style="font-size:.6rem;opacity:.7;margin-left:3px;animation:pulse 1.2s ease-in-out infinite">수집중…</span>`;
+      } else if (cnt > 0) {
+        extra = `<span style="font-size:.65rem;opacity:.75;margin-left:2px">${cnt}</span>`;
+      } else if (_spaoStatus?.error) {
+        extra = `<span style="font-size:.6rem;opacity:.8;margin-left:3px;color:#ef4444" title="${_spaoStatus.error}">오류</span>`;
+      }
+    } else if (cnt > 0) {
+      extra = `<span style="font-size:.65rem;opacity:.75;margin-left:2px">${cnt}</span>`;
+    }
+    return `<span class="ch-pill ${c.disabled?'off':''}" style="color:${c.color};border-color:${c.color}44;background:${c.color}18">
+      <span style="width:5px;height:5px;border-radius:50%;background:${c.color};display:inline-block"></span>
+      ${c.name}${extra}
+    </span>`;
+  }).join('');
+}
+
+/* 자사몰 상태 폴링 */
+let _spaoPollTimer = null;
+let _spaoStatus    = null;
+
+async function pollSpaoStatus() {
+  try {
+    const r = await fetch('/api/spao-status');
+    const s = await r.json();
+    _spaoStatus = s;
+    renderPills(_naverStatus);   // pills 갱신
+
+    if (s.fetching) {
+      _spaoPollTimer = setTimeout(pollSpaoStatus, 5000);
+    } else if (s.items > 0 && data.length > 0) {
+      const wasEmpty = data.filter(p => p.channels?.official).length === 0;
+      if (wasEmpty) { load(); }
+      _spaoPollTimer = null;
+    } else {
+      _spaoPollTimer = setTimeout(pollSpaoStatus, 10000);
+    }
+  } catch(e) {
+    _spaoPollTimer = setTimeout(pollSpaoStatus, 15000);
+  }
+}
+
+/* 네이버 상태 폴링 */
+let _naverPollTimer = null;
+let _naverStatus = null;
+
+async function pollNaverStatus() {
+  try {
+    const r = await fetch('/api/naver-status');
+    const s = await r.json();
+    _naverStatus = s;
+    renderPills(s);
+
+    if (s.fetching) {
+      // 수집 중 → 5초마다 폴링
+      _naverPollTimer = setTimeout(pollNaverStatus, 5000);
+    } else if (s.items > 0 && data.length > 0) {
+      // 수집 완료 & 데이터 있음 → 네이버 비어있었으면 자동 새로고침
+      const wasEmpty = data.filter(p => p.channels?.naver).length === 0;
+      if (wasEmpty) {
+        console.log('[naver] 수집 완료, 데이터 갱신');
+        load();
+      }
+      _naverPollTimer = null;
+    } else {
+      // 에러 or 아직 미수집 → 10초마다 계속 감시 (수집 시작되면 감지)
+      _naverPollTimer = setTimeout(pollNaverStatus, 10000);
+    }
+  } catch(e) {
+    // 네트워크 오류 → 15초 후 재시도
+    _naverPollTimer = setTimeout(pollNaverStatus, 15000);
+  }
+}
+
+/* ═══════════════════════════════
+   시즌 칩 (연도 헤더 + 세부 코드 다중 선택)
+═══════════════════════════════ */
+function renderSeasonChips() {
+  // 유효한 2자리 시즌 코드만 수집 (e.g. G1, G2, GA)
+  const allCodes = [...new Set(data.map(p => p.season).filter(s => s && s.length === 2))].sort().reverse();
+
+  // 연도 문자별로 그룹핑, SEASON_YEAR에 있는 것만 유효
+  const byYear = {};
+  allCodes.forEach(code => {
+    const yr = code[0];
+    if (!SEASON_YEAR[yr]) return; // 알 수 없는 연도 문자는 무시
+    if (!byYear[yr]) byYear[yr] = [];
+    byYear[yr].push(code);
+  });
+
+  const years = Object.keys(byYear).sort().reverse();
+  const wrap = document.getElementById('season-chips');
+  let html = '<span style="font-size:.7rem;color:#9ca3af;white-space:nowrap;flex-shrink:0">시즌</span>';
+
+  years.forEach(yr => {
+    const year = SEASON_YEAR[yr];
+    const codes = byYear[yr]; // 이미 내림차순 정렬됨
+    const allActive  = codes.length > 0 && codes.every(c => seasonFilter.has(c));
+    const someActive = codes.some(c => seasonFilter.has(c));
+    const yrState    = allActive ? 'active' : someActive ? 'partial' : '';
+
+    // 연도 헤더 칩 — 클릭 시 해당 연도 전체 토글
+    html += `<span class="s-chip s-chip-yr ${yrState}" data-letter="${yr}" data-year="${year}" onclick="toggleYear('${yr}')">${yr} <span style="font-size:.6rem;opacity:.7">${year}</span></span>`;
+
+    // 세부 시즌 칩 (G1, G2, GA …)
+    codes.forEach(code => {
+      const sub    = code[1]; // 두 번째 자리 (1, 2, 3, A …)
+      const active = seasonFilter.has(code);
+      html += `<span class="s-chip s-chip-sub ${active?'active':''}" data-code="${code}" data-year="${year}" onclick="toggleSeasonCode('${code}')" title="${code}">${sub}</span>`;
+    });
+  });
+
+  html += `<span class="s-chip s-chip-clear" onclick="clearSeason()">전체</span>`;
+  wrap.innerHTML = html;
+}
+
+function toggleYear(yr) {
+  const codes = [...new Set(data.map(p => p.season).filter(s => s && s.length === 2 && s[0] === yr))];
+  const allActive = codes.length > 0 && codes.every(c => seasonFilter.has(c));
+  if (allActive) {
+    codes.forEach(c => seasonFilter.delete(c));
+  } else {
+    codes.forEach(c => seasonFilter.add(c));
+  }
+  renderSeasonChips();
+  render();
+}
+
+function toggleSeasonCode(code) {
+  if (seasonFilter.has(code)) seasonFilter.delete(code);
+  else seasonFilter.add(code);
+  renderSeasonChips();
+  render();
+}
+
+function clearSeason() {
+  seasonFilter.clear();
+  renderSeasonChips();
+  render();
+}
+
+/* ═══════════════════════════════
+   알림 배너
+═══════════════════════════════ */
+function renderAlerts() {
+  // ── 타채널이 더 저렴 (hasAlert) ──
+  const alerts = data.filter(p => p.hasAlert);
+  const n = alerts.length;
+  document.getElementById('alert-n').textContent = n;
+  document.getElementById('alert-bar-n').textContent = n;
+  document.getElementById('alert-pill').classList.toggle('on', n > 0);
+  document.getElementById('alert-bar').classList.toggle('on', n > 0);
+  document.getElementById('alert-chips').innerHTML = alerts.map(p => {
+    const chName = CH[p.lowestChannel]?.name || p.lowestChannel;
+    const gap = (p.channels.official?.price || 0) - p.lowestPrice;
+    return `<span class="ac"><span class="code">${p.styleCode}</span><span class="info">${esc(p.styleName.substring(0,18))} · 최저 ${fmt(p.lowestPrice)}원 (${chName}) vs 자사 ${fmt(p.channels.official?.price||0)}원 △${fmt(gap)}</span></span>`;
+  }).join('');
+
+  // ── 자사몰이 최저가 ──
+  const wins = data.filter(p => isOfficialLowest(p));
+  const w = wins.length;
+  document.getElementById('win-n').textContent = w;
+  document.getElementById('win-bar-n').textContent = w;
+  document.getElementById('win-pill').classList.toggle('on', w > 0);
+  document.getElementById('win-bar').classList.toggle('on', w > 0);
+  // 자사몰 가격과 차순위 채널 가격차 계산 후 내림차순 표시
+  const winsSorted = [...wins].sort((a, b) => {
+    const gapA = _secondLowest(a) - a.channels.official.price;
+    const gapB = _secondLowest(b) - b.channels.official.price;
+    return gapB - gapA;
+  });
+  document.getElementById('win-chips').innerHTML = winsSorted.map(p => {
+    const ofP = p.channels.official.price;
+    const sl  = _secondLowest(p);
+    const gap = sl - ofP;
+    const slCh = _secondLowestCh(p);
+    return `<span class="wc"><span class="code">${p.styleCode}</span><span class="info">${esc(p.styleName.substring(0,18))} · 자사 ${fmt(ofP)}원 vs ${CH[slCh]?.name||slCh} ${fmt(sl)}원 ▽${fmt(gap)}</span></span>`;
+  }).join('');
+}
+
+// 자사몰 제외 최저 가격
+function _secondLowest(p) {
+  const prices = Object.entries(p.channels)
+    .filter(([k, v]) => k !== 'official' && !v.isSoldOut && v.price > 0)
+    .map(([, v]) => v.price);
+  return prices.length ? Math.min(...prices) : 0;
+}
+function _secondLowestCh(p) {
+  let minP = Infinity, minCh = '';
+  Object.entries(p.channels).forEach(([k, v]) => {
+    if (k !== 'official' && !v.isSoldOut && v.price > 0 && v.price < minP) { minP = v.price; minCh = k; }
+  });
+  return minCh;
+}
+
+function toggleAlerts() {
+  const chips = document.getElementById('alert-chips');
+  chips.classList.toggle('open');
+  document.getElementById('alert-toggle').textContent = chips.classList.contains('open') ? '접기 ▲' : '펼치기 ▼';
+}
+function toggleWins() {
+  const chips = document.getElementById('win-chips');
+  chips.classList.toggle('open');
+  document.getElementById('win-toggle').textContent = chips.classList.contains('open') ? '접기 ▲' : '펼치기 ▼';
+}
+function scrollAlert() {
+  document.getElementById('alert-bar').scrollIntoView({behavior:'smooth'});
+}
+
+// 헤더 pill 클릭 → 해당 필터 활성화 + 가격차 정렬
+function activateFilter(key) {
+  if (!F[key]) {
+    F[key] = true;
+    const btnId = key === 'walert' ? 'btn-walert' : 'btn-oflow';
+    document.getElementById(btnId).classList.add(key === 'walert' ? 'on-alert' : 'on-win');
+    // 자동 정렬: 가격차 큰 순
+    const sortVal = key === 'walert' ? 'gap-alert-desc' : 'gap-win-desc';
+    document.getElementById('sort-sel').value = sortVal;
+    applySort(sortVal);
+  }
+  document.getElementById('table-outer').scrollIntoView({behavior:'smooth'});
+}
+
+/* ═══════════════════════════════
+   관심목록
+═══════════════════════════════ */
+function toggleWatch() {
+  watchActive = !watchActive;
+  document.getElementById('btn-watch').classList.toggle('on', watchActive);
+  document.getElementById('watch-bar').classList.toggle('on', watchActive);
+  if (watchActive) renderWatchPanel();
+  render();
+}
+
+function addWatchCodes() {
+  const raw = document.getElementById('watch-input').value;
+  // 쉼표 · 세미콜론 · 줄바꿈 · 공백 어떤 구분자도 허용
+  const codes = raw.split(/[,;\n\r\s]+/)
+    .map(s => s.trim().toUpperCase())
+    .filter(s => s.length >= 3); // 최소 3자 이상만
+
+  let added = 0;
+  codes.forEach(c => { if (!watchCodes.has(c)) { watchCodes.add(c); added++; } });
+
+  if (added === 0 && codes.length > 0) {
+    // 이미 모두 존재
+    document.getElementById('watch-input').value = '';
+    return;
+  }
+  _saveWatchlist();
+  _syncWatchBtn();
+  document.getElementById('watch-input').value = '';
+  renderWatchPanel();
+  if (watchActive) render();
+}
+
+function removeWatchCode(code) {
+  watchCodes.delete(code);
+  _saveWatchlist();
+  _syncWatchBtn();
+  renderWatchPanel();
+  if (watchActive) render();
+}
+
+function clearWatchlist() {
+  if (watchCodes.size === 0) return;
+  if (!confirm(`저장된 ${watchCodes.size}개 코드를 모두 삭제하시겠습니까?`)) return;
+  watchCodes.clear();
+  _saveWatchlist();
+  _syncWatchBtn();
+  renderWatchPanel();
+  if (watchActive) render();
+}
+
+function renderWatchPanel() {
+  document.getElementById('watch-count').textContent = `저장된 코드 ${watchCodes.size}개`;
+  _syncWatchBtn();
+
+  if (watchCodes.size === 0) {
+    document.getElementById('watch-chips').innerHTML =
+      `<span class="watch-empty-msg">아직 저장된 코드가 없습니다. 위에 스타일코드를 입력하고 추가 버튼을 누르세요.</span>`;
+    return;
+  }
+
+  // 수집 데이터에 있는 코드인지 여부 확인
+  const knownCodes = new Set(data.map(p => p.styleCode).filter(Boolean));
+
+  const html = [...watchCodes].map(code => {
+    const exists = knownCodes.has(code);
+    return `<span class="watch-chip${exists ? '' : ' not-found'}">
+      ${esc(code)}
+      ${!exists ? `<span class="miss">미수집</span>` : ''}
+      <button class="watch-chip-del" onclick="removeWatchCode('${esc(code)}')" title="${esc(code)} 삭제">×</button>
+    </span>`;
+  }).join('');
+
+  document.getElementById('watch-chips').innerHTML = html;
+}
+
+/* ═══════════════════════════════
+   필터 토글
+═══════════════════════════════ */
+function toggle(key) {
+  F[key] = !F[key];
+  const btn = document.getElementById('btn-' + key);
+  btn.classList.toggle('on',       key !== 'walert' && key !== 'oflow' && F[key]);
+  btn.classList.toggle('on-alert', key === 'walert' && F[key]);
+  btn.classList.toggle('on-win',   key === 'oflow'  && F[key]);
+  // 필터 켤 때 자동으로 가격차 정렬
+  if (F[key]) {
+    if (key === 'walert') { document.getElementById('sort-sel').value = 'gap-alert-desc'; applySort('gap-alert-desc'); return; }
+    if (key === 'oflow')  { document.getElementById('sort-sel').value = 'gap-win-desc';   applySort('gap-win-desc');   return; }
+  }
+  render();
+}
+
+/* ═══════════════════════════════
+   정렬
+═══════════════════════════════ */
+function applySort(v) {
+  document.querySelectorAll('thead th').forEach(t => t.classList.remove('asc','desc'));
+  if      (v === 'season-desc')    { sortCol = 'season';      sortDir = -1; }
+  else if (v === 'season-asc')     { sortCol = 'season';      sortDir =  1; }
+  else if (v === 'code')           { sortCol = 'code';        sortDir =  1; }
+  else if (v === 'low-asc')        { sortCol = 'low';         sortDir =  1; }
+  else if (v === 'low-desc')       { sortCol = 'low';         sortDir = -1; }
+  else if (v === 'gap-alert-desc') { sortCol = 'gap-alert';   sortDir = -1; }
+  else if (v === 'gap-win-desc')   { sortCol = 'gap-win';     sortDir = -1; }
+  else if (v === 'of-asc')         { sortCol = 'of';          sortDir =  1; }
+  else if (v === 'mu-asc')         { sortCol = 'mu';          sortDir =  1; }
+  else if (v === 'zz-asc')         { sortCol = 'zz';          sortDir =  1; }
+  render();
+}
+
+document.querySelectorAll('thead th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const c = th.dataset.col;
+    sortDir = (sortCol === c) ? -sortDir : 1;
+    sortCol = c;
+    document.querySelectorAll('thead th').forEach(t => t.classList.remove('asc','desc'));
+    th.classList.add(sortDir === 1 ? 'asc' : 'desc');
+    render();
+  });
+});
+
+document.getElementById('q').addEventListener('input', render);
+
+/* ═══════════════════════════════
+   메인 렌더
+═══════════════════════════════ */
+function render() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+
+  let rows = data.filter(p => {
+    if (seasonFilter.size > 0) {
+      // 2자리 시즌 코드 전체 일치 (e.g. 'G1', 'G2', 'GA')
+      if (!p.season || !seasonFilter.has(p.season)) return false;
+    }
+    if (F.nostock) {
+      if (!Object.values(p.channels).some(c => !c.isSoldOut)) return false;
+    }
+    if (F.sale) {
+      if (!Object.values(p.channels).some(c => c.saleRate > 0 && !c.isSoldOut)) return false;
+    }
+    if (F.walert && !p.hasAlert) return false;
+    if (F.oflow  && !isOfficialLowest(p)) return false;
+    // 관심목록 필터 — ON 시 저장된 코드만 표시
+    if (watchActive && watchCodes.size > 0) {
+      if (!watchCodes.has(p.styleCode)) return false;
+    }
+    if (q) return p.styleCode.toLowerCase().includes(q) || p.styleName.toLowerCase().includes(q);
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let va, vb;
+    if      (sortCol === 'season') { va = a.season||''; vb = b.season||''; }
+    else if (sortCol === 'code')   { va = a.styleCode;  vb = b.styleCode; }
+    else if (sortCol === 'name')   { va = a.styleName;  vb = b.styleName; }
+    else if (sortCol === 'low')    { va = a.lowestPrice||999999; vb = b.lowestPrice||999999; }
+    else if (sortCol === 'of')     { va = a.channels.official?.price||999999; vb = b.channels.official?.price||999999; }
+    else if (sortCol === 'mu')     { va = a.channels.musinsa?.price||999999;  vb = b.channels.musinsa?.price||999999; }
+    else if (sortCol === 'zz')     { va = a.channels.zigzag?.price||999999;   vb = b.channels.zigzag?.price||999999; }
+    else if (sortCol === 'nv')     { va = a.channels.naver?.price||999999;    vb = b.channels.naver?.price||999999; }
+    // 가격차 큰 순: 타채널이 낮은 경우 (자사몰 - 최저가)
+    else if (sortCol === 'gap-alert') {
+      va = (a.channels.official?.price||0) - (a.lowestPrice||0);
+      vb = (b.channels.official?.price||0) - (b.lowestPrice||0);
+      // hasAlert 아닌 것은 맨 뒤
+      if (!a.hasAlert) va = -999999;
+      if (!b.hasAlert) vb = -999999;
+    }
+    // 가격차 큰 순: 자사몰이 낮은 경우 (차순위 채널 - 자사몰)
+    else if (sortCol === 'gap-win') {
+      va = _secondLowest(a) - (a.channels.official?.price||0);
+      vb = _secondLowest(b) - (b.channels.official?.price||0);
+      // 자사몰 최저 아닌 것은 맨 뒤
+      if (!isOfficialLowest(a)) va = -999999;
+      if (!isOfficialLowest(b)) vb = -999999;
+    }
+    else { va = a.styleCode; vb = b.styleCode; }
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    return va < vb ? -sortDir : va > vb ? sortDir : 0;
+  });
+
+  document.getElementById('count').textContent = `${rows.length}개 / 전체 ${data.length}개`;
+
+  // 자사몰이 첫 번째 — 순서: 자사몰 | 무신사 지그재그 | 이랜드몰 | 네이버 | 최저가
+  const ACTIVE_CHS = ['official', 'musinsa', 'zigzag', 'eland', 'naver'];
+  // 각 채널의 그룹 구분선 (맨 첫 번째 td에 grp-sep 클래스 부여)
+  const CH_GRP_SEP = { official: true, musinsa: true, zigzag: true, eland: true, naver: true };
+
+  const html = rows.map(p => {
+    const allOut = Object.values(p.channels).every(c => c.isSoldOut);
+
+    const yr = SEASON_YEAR[p.season?.[0]] || 0;
+    const syClass = yr >= 2026 ? 'sy-2026' : yr === 2025 ? 'sy-2025' : yr === 2024 ? 'sy-2024' : yr === 2023 ? 'sy-2023' : yr === 2022 ? 'sy-2022' : 'sy-old';
+
+    const chCells = ACTIVE_CHS.map(id => {
+      const sepCls = CH_GRP_SEP[id] ? ' grp-sep' : '';
+      const ch = p.channels[id];
+      if (!ch) return `<td class="price-cell pc-empty${sepCls}">—</td>`;
+      if (ch.isSoldOut) return `<td class="price-cell pc-soldout${sepCls}"><span class="sb">품절</span></td>`;
+
+      const isLow   = id === p.lowestChannel;
+      const isAlert = p.hasAlert && isLow;
+      const cls     = isAlert ? 'is-alert' : isLow ? 'is-low' : '';
+      const showNorm = ch.normalPrice && ch.normalPrice > ch.price;
+
+      return `<td class="price-cell${sepCls}">
+        <div class="ch-price ${cls}">
+          ${isLow ? '<span class="dot-low"></span>' : ''}
+          <a href="${ch.link}" target="_blank">${fmt(ch.price)}원</a>
+        </div>
+        ${showNorm ? `<div class="ch-normal">${fmt(ch.normalPrice)}원</div>` : ''}
+        ${ch.saleRate > 0 ? `<span class="ch-rate">-${ch.saleRate}%</span>` : ''}
+      </td>`;
+    }).join('');
+
+    const bestCell = p.lowestPrice > 0 ? `
+      <td class="grp-sep">
+        <div class="best-price">${fmt(p.lowestPrice)}원</div>
+        <div class="best-ch"><span class="best-badge">${CH[p.lowestChannel]?.name || p.lowestChannel}</span></div>
+      </td>` : `<td class="pc-empty grp-sep">—</td>`;
+
+    // 행 하이라이트: 빨간(타채널 더 낮음) / 초록(자사몰 최저)
+    const rowCls = [
+      allOut ? 'dim' : '',
+      p.hasAlert          ? 'price-alert' : '',
+      isOfficialLowest(p) ? 'price-win'   : '',
+    ].filter(Boolean).join(' ');
+
+    return `<tr class="${rowCls}">
+      <td class="sticky-season"><span class="season-badge ${syClass}">${esc(p.season||'—')}</span></td>
+      <td class="sticky-code"><span class="code-text">${esc(p.styleCode||'—')}</span></td>
+      <td class="sticky-name"><a class="name-link" href="${p.channels.musinsa?.link||p.channels.zigzag?.link||p.channels.naver?.link||'#'}" target="_blank">${esc(p.styleName)}</a></td>
+      ${chCells}
+      ${bestCell}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tbody').innerHTML = html ||
+    `<tr><td colspan="9" class="empty">검색 결과가 없습니다.</td></tr>`;
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('tbl').style.display = 'table';
+}
+
+/* ═══════════════════════════════
+   유틸
+═══════════════════════════════ */
+function fmt(n) { return (n||0).toLocaleString('ko-KR'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+load();
+</script>
+</body>
+</html>

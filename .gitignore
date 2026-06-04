@@ -1,0 +1,45 @@
+# ── Playwright 브라우저 (270MB 바이너리, 각자 설치) ──
+pw-browsers/
+
+# ── Node.js ──
+node_modules/
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+.venv/
+
+# ── 개발 중 생성된 임시/테스트 파일 ──
+check_*.js
+check_*.py
+find_*.py
+test_*.py
+verify_*.py
+capture_api.js
+check_subcats.js
+check_zigzag*.js
+dalgona_api.js
+rss_to_gmail.py
+setup_task_scheduler.bat
+bat_test*.log
+naver_page_*.html
+naver_out.json
+naver_api_info.json
+zigzag_request.json
+skills-lock.json
+_deploy_tmp*/
+spao_monitor_deploy.zip
+
+# ── Claude Code ──
+.claude/
+.agents/
+CLAUDE.md
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+desktop.ini
