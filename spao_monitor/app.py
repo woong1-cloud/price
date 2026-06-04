@@ -351,7 +351,8 @@ def _fetch_spao_all_python() -> dict:
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
-            except Exception:
+            except Exception as e:
+                _slog(f"cat {cat_no} p{page} ERROR: {type(e).__name__}:{e}")
                 break
             outcome   = data.get("srchOutCome", {})
             item_data = outcome.get("item", {})
@@ -1208,6 +1209,74 @@ def api_naver_run_test():
         return jsonify({"error": "timeout (300s)"})
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+@app.route("/api/test-connections")
+def api_test_connections():
+    """각 데이터 소스 HTTP 연결 직접 테스트 — Lambda IP 차단 여부 확인용"""
+    out = {}
+
+    def _try(name, fn):
+        try:
+            out[name] = fn()
+        except Exception as e:
+            out[name] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+
+    # SPAO
+    def _spao():
+        url = "https://www.spao.com/v1/search/leaf/cate/item/api?dispMctgNo=2605000006&page=1&pageSize=5"
+        req = urllib.request.Request(url, headers=_SPAO_API_HDR)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        lst = data.get("srchOutCome", {}).get("item", {}).get("list", [])
+        return {"ok": True, "status": r.getcode(), "items": len(lst)}
+    _try("spao", _spao)
+
+    # Musinsa
+    def _musinsa():
+        url = "https://api.musinsa.com/api2/dp/v2/plp/goods?brand=spao&sortCode=POPULAR&size=5&caller=FLAGSHIP&gf=A&page=1"
+        req = urllib.request.Request(url, headers=MUSINSA_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        lst = data.get("data", {}).get("list", [])
+        return {"ok": True, "status": r.getcode(), "items": len(lst)}
+    _try("musinsa", _musinsa)
+
+    # Zigzag
+    def _zigzag():
+        vars_ = {"shop_id": "25938", "category_id": "0", "after_id": None,
+                 "check_button_item_ids": [], "sorting_item_id": None, "sub_filter_id_list": []}
+        payload = json.dumps({"query": ZIGZAG_QUERY, "variables": vars_}).encode("utf-8")
+        req = urllib.request.Request(ZIGZAG_URL, data=payload, headers=ZIGZAG_HEADERS, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        lst = data.get("data", {}).get("shop_ux_component_list", {}).get("item_list", [])
+        return {"ok": True, "status": r.getcode(), "items": len(lst)}
+    _try("zigzag", _zigzag)
+
+    # Eland
+    def _eland():
+        url = "https://spao.elandmall.co.kr/c/ctg?dispCategoryNo=1711333016&from=0"
+        req = urllib.request.Request(url, headers=ELAND_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            html = r.read().decode("utf-8", errors="replace")
+        items = ELAND_ITEM_RE.findall(html)
+        return {"ok": True, "status": r.getcode(), "items": len(items)}
+    _try("eland", _eland)
+
+    # Naver
+    def _naver():
+        url = "https://brand.naver.com/spao/category/ALL"
+        req = urllib.request.Request(url, headers=_NAVER_HDR_PY)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            html = r.read().decode("utf-8", errors="replace")
+        has_state = "__PRELOADED_STATE__" in html
+        state = _extract_naver_state(html)
+        return {"ok": True, "status": r.getcode(), "html_len": len(html),
+                "has_preloaded_state": has_state, "state_keys": list(state.keys())[:10]}
+    _try("naver", _naver)
+
+    return jsonify(out)
 
 
 if __name__ == "__main__":
