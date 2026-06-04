@@ -336,9 +336,11 @@ _SPAO_API_HDR = {
 }
 
 def _fetch_spao_all_python() -> dict:
-    """순수 Python urllib — Node.js 없는 환경(Lambda 등)에서 SPAO 직접 수집"""
-    seen: dict = {}
-    for cat_no in _SPAO_CATEGORIES:
+    """순수 Python urllib — 10병렬 수집, Lambda/클라우드 호환 (~3-5초)"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _cat_pages(cat_no):
+        items = {}
         page = 1
         while True:
             url = (
@@ -357,22 +359,31 @@ def _fetch_spao_all_python() -> dict:
             lst       = item_data.get("list", [])
             for it in lst:
                 ino = str(it.get("itemNo", ""))
-                if ino and ino not in seen:
+                if ino:
                     sell_p = it.get("orgSellprice", 0)
-                    seen[ino] = {
+                    items.setdefault(ino, {
                         "itemNo":    ino,
                         "name":      it.get("itemName", ""),
                         "sellP":     sell_p,
                         "saleP":     it.get("finalDcPrice", 0) or sell_p,
                         "isSoldOut": it.get("soldOutYn", "N") == "Y",
-                    }
+                    })
             fetched = (page - 1) * 60 + len(lst)
             if fetched >= total or len(lst) < 60:
                 break
             page += 1
-            time.sleep(0.1)
-        time.sleep(0.1)
-    _slog(f"Python fetch complete: {len(seen)} raw items")
+        return items
+
+    seen: dict = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = [ex.submit(_cat_pages, c) for c in _SPAO_CATEGORIES]
+        for fut in as_completed(futs):
+            try:
+                for k, v in fut.result().items():
+                    seen.setdefault(k, v)
+            except Exception:
+                pass
+    _slog(f"Python parallel fetch: {len(seen)} raw items")
     return _parse_spao_raw(list(seen.values()))
 
 
@@ -471,9 +482,26 @@ def start_spao_refresh() -> bool:
     return True
 
 def fetch_spao_official() -> dict:
-    """캐시된 자사몰 상품 반환"""
+    """자사몰 상품 반환 — 캐시 없으면 즉시 동기 수집 (Lambda/클라우드 호환)"""
+    global _spao_cache, _spao_cache_time, _spao_error
     with _spao_lock:
-        return dict(_spao_cache)
+        if _spao_cache:
+            return dict(_spao_cache)
+    # 캐시 비어있음 → Python으로 즉시 수집 (병렬 10 threads, ~3-5초)
+    _slog("cache empty → sync fetch start")
+    try:
+        parsed = _fetch_spao_all_python()
+        with _spao_lock:
+            _spao_cache      = parsed
+            _spao_cache_time = time.time()
+            _spao_error      = ""
+        _slog(f"sync fetch done: {len(parsed)}")
+        return dict(parsed)
+    except Exception as e:
+        _slog(f"sync fetch error: {e}")
+        with _spao_lock:
+            _spao_error = str(e)
+        return {}
 
 # 서버 시작 시 자동 수집
 try:
@@ -587,6 +615,94 @@ def _make_node_env() -> dict:
     return env
 
 
+# ── 순수 Python 네이버 수집 (SSR HTML __PRELOADED_STATE__ 파싱) ──
+_NAVER_CATS_PY = [
+    'ALL',
+    'b6a9188b831343bf8c3cb2133b668ad2',  # 여성
+    '64e83fd96df44c71a0802e094dcb395f',  # 남성
+    'd09aab8f2f3d45b19f4235941b549e1c',  # 잡화
+    'd5eda39831ac45d4a31a9e799b9fb048',  # BEST
+    '8d39073c3dcb42e5b9c8dbaccf545a9f',  # 콜라보
+    'b67e4e95989e47908dff9ddfcc36b49c',  # 네이버단독
+    '87a025edbac74a148a9bb86ef524f7b7',  # N배송
+    'd549391f0a4440c783d810ed6d9ed5be',  # 특가
+]
+_NAVER_HDR_PY = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+}
+_NAVER_STATE_RE = re.compile(r'window\.__PRELOADED_STATE__\s*=\s*')
+
+def _extract_naver_state(html: str) -> dict:
+    """HTML에서 __PRELOADED_STATE__ JSON 추출"""
+    m = _NAVER_STATE_RE.search(html)
+    if not m:
+        return {}
+    start = m.end()
+    sub = html[start:start + 20].lstrip()
+    # Object.freeze({...}) 감싸는 경우
+    if sub.startswith("Object.freeze("):
+        freeze_idx = html.find("Object.freeze(", m.end())
+        start = freeze_idx + len("Object.freeze(")
+    elif sub.startswith("JSON.parse("):
+        return {}  # minified string — JS 실행 필요
+    try:
+        decoder = json.JSONDecoder()
+        state, _ = decoder.raw_decode(html, start)
+        return state if isinstance(state, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+def _state_to_naver_raw(state: dict) -> list:
+    cp      = state.get("categoryProducts", {}).get("simpleProducts", [])
+    bs_a    = state.get("bsProductCollection", {}).get("A", {})
+    all_p   = cp + bs_a.get("newProducts", []) + bs_a.get("bestProducts", []) + bs_a.get("bestReviewProducts", [])
+    result  = []
+    for p in all_p:
+        prod_no = str(p.get("id") or p.get("productNo", ""))
+        if not prod_no:
+            continue
+        orig_p = p.get("salePrice", 0)
+        bv     = p.get("benefitsView") or {}
+        promo  = bv.get("discountedSalePrice", 0)
+        sale_p = promo if promo and promo < orig_p else orig_p
+        result.append({
+            "productNo":         prod_no,
+            "name":              p.get("name", ""),
+            "salePrice":         sale_p,
+            "originalPrice":     orig_p,
+            "discountRate":      bv.get("discountedRatio", 0),
+            "productStatusType": p.get("productStatusType") or p.get("channelProductDisplayStatus") or "SALE",
+        })
+    return result
+
+def _fetch_naver_all_python() -> dict:
+    """순수 Python urllib — Naver SSR HTML에서 __PRELOADED_STATE__ 파싱"""
+    seen: dict = {}
+    for cat_id in _NAVER_CATS_PY:
+        url = f"https://brand.naver.com/spao/category/{cat_id}"
+        req = urllib.request.Request(url, headers=_NAVER_HDR_PY)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            _nlog(f"Python Naver fetch error {cat_id[:8]}: {e}")
+            continue
+        state = _extract_naver_state(html)
+        if not state:
+            _nlog(f"No __PRELOADED_STATE__ in {cat_id[:8]}")
+            continue
+        raw_list = _state_to_naver_raw(state)
+        new_cnt  = sum(1 for p in raw_list if p["productNo"] not in seen)
+        for p in raw_list:
+            seen.setdefault(p["productNo"], p)
+        _nlog(f"Python Naver {cat_id[:8]}: {len(raw_list)}개 (신규 {new_cnt})")
+        time.sleep(0.2)
+    _nlog(f"Python Naver fetch done: {len(seen)} products")
+    return _parse_naver_raw(list(seen.values()))
+
+
 def _naver_worker():
     """백그라운드 스레드: node 실행 -> 캐시 갱신"""
     global _naver_cache, _naver_cache_time, _naver_fetching, _naver_error
@@ -668,9 +784,30 @@ def start_naver_refresh() -> bool:
     return True
 
 def fetch_naver() -> dict:
-    """캐시된 네이버 상품 반환 (API 호출용)"""
+    """네이버 상품 반환 — 캐시 없으면 Python HTML 파싱 시도 (Lambda 호환)"""
+    global _naver_cache, _naver_cache_time, _naver_error
     with _naver_lock:
-        return dict(_naver_cache)
+        if _naver_cache:
+            return dict(_naver_cache)
+    # 캐시 없음 → Python fallback 시도
+    _nlog("cache empty → Python fallback start")
+    try:
+        parsed = _fetch_naver_all_python()
+        if parsed:
+            with _naver_lock:
+                _naver_cache      = parsed
+                _naver_cache_time = time.time()
+                _naver_error      = ""
+            _nlog(f"Python fallback done: {len(parsed)}")
+            return dict(parsed)
+        else:
+            _nlog("Python fallback: empty (JS rendering required or bot-blocked)")
+            with _naver_lock:
+                _naver_error = "Python fallback: no data"
+            return {}
+    except Exception as e:
+        _nlog(f"Python fallback error: {e}")
+        return {}
 
 # 서버 시작 시 자동 수집
 try:
