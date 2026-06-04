@@ -64,7 +64,7 @@ def fetch_musinsa():
 # ─────────────────────────────────────────────
 # 지그재그
 # ─────────────────────────────────────────────
-ZIGZAG_URL = "https://api.zigzag.kr/api/2/graphql/GetCategoryDetailComponentList"
+ZIGZAG_URL = "https://api.zigzag.kr/api/2/graphql"
 ZIGZAG_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -1234,7 +1234,7 @@ def api_test_connections():
         with urllib.request.urlopen(req, timeout=10) as r:
             raw = r.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
-        lst = data.get("srchOutCome", {}).get("item", {}).get("list", [])
+        lst = data.get("data", {}).get("srchOutCome", {}).get("item", {}).get("list", [])
         return {
             "ok": True, "status": r.getcode(), "items": len(lst),
             "top_keys": list(data.keys()),
