@@ -1224,12 +1224,17 @@ def api_test_connections():
 
     # SPAO
     def _spao():
-        url = "https://www.spao.com/v1/search/leaf/cate/item/api?dispMctgNo=2605000006&page=1&pageSize=5"
+        url = "https://www.spao.com/v1/search/leaf/cate/item/api?dispMctgNo=2605000006&page=1&pageSize=60"
         req = urllib.request.Request(url, headers=_SPAO_API_HDR)
         with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode("utf-8"))
+            raw = r.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
         lst = data.get("srchOutCome", {}).get("item", {}).get("list", [])
-        return {"ok": True, "status": r.getcode(), "items": len(lst)}
+        return {
+            "ok": True, "status": r.getcode(), "items": len(lst),
+            "top_keys": list(data.keys()),
+            "raw_preview": raw[:800],
+        }
     _try("spao", _spao)
 
     # Musinsa
@@ -1249,9 +1254,16 @@ def api_test_connections():
         payload = json.dumps({"query": ZIGZAG_QUERY, "variables": vars_}).encode("utf-8")
         req = urllib.request.Request(ZIGZAG_URL, data=payload, headers=ZIGZAG_HEADERS, method="POST")
         with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        lst = data.get("data", {}).get("shop_ux_component_list", {}).get("item_list", [])
-        return {"ok": True, "status": r.getcode(), "items": len(lst)}
+            raw = r.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        comp = data.get("data", {}).get("shop_ux_component_list", {})
+        lst  = comp.get("item_list", [])
+        return {
+            "ok": True, "status": r.getcode(), "items": len(lst),
+            "top_keys": list(data.keys()),
+            "comp_keys": list(comp.keys()) if isinstance(comp, dict) else [],
+            "raw_preview": raw[:800],
+        }
     _try("zigzag", _zigzag)
 
     # Eland
