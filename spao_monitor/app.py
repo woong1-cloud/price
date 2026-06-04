@@ -67,8 +67,12 @@ def fetch_musinsa():
 ZIGZAG_URL = "https://api.zigzag.kr/api/2/graphql/GetCategoryDetailComponentList"
 ZIGZAG_HEADERS = {
     "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://zigzag.kr/",
+    "Origin": "https://zigzag.kr",
+    "Accept": "application/json, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+    "x-app-type": "FASHION_STORE",
 }
 ZIGZAG_QUERY = """
 fragment Prod on ShopUxProductCardItem {
@@ -354,7 +358,8 @@ def _fetch_spao_all_python() -> dict:
             except Exception as e:
                 _slog(f"cat {cat_no} p{page} ERROR: {type(e).__name__}:{e}")
                 break
-            outcome   = data.get("srchOutCome", {})
+            # API 응답 구조: {"resultCode":"200","data":{"srchOutCome":{"item":{...}}}}
+            outcome   = data.get("data", {}).get("srchOutCome", {})
             item_data = outcome.get("item", {})
             total     = item_data.get("total", 0)
             lst       = item_data.get("list", [])
@@ -1262,7 +1267,7 @@ def api_test_connections():
             "ok": True, "status": r.getcode(), "items": len(lst),
             "top_keys": list(data.keys()),
             "comp_keys": list(comp.keys()) if isinstance(comp, dict) else [],
-            "raw_preview": raw[:800],
+            "raw_preview": raw[:1200],
         }
     _try("zigzag", _zigzag)
 
