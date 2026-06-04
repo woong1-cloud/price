@@ -316,12 +316,97 @@ def _parse_spao_raw(raw: list) -> dict:
             }
     return products
 
+# ── 순수 Python SPAO 수집 (Lambda / Node.js 없는 환경 fallback) ──
+_SPAO_CATEGORIES = [
+    2605000006, 2605000015, 2605000023, 2605000028,
+    2605000037, 2605000043, 2605000045, 2605000051,
+    2605000064, 2605000068, 2605000073, 2605000084,
+    2605000085, 2605000094,
+    2605000102, 2605000109, 2605000122, 2605000127,
+    2605000131, 2605000136, 2605000141, 2605000149,
+    2605000150, 2605000159, 2605000165, 2605000172,
+    2605000177, 2605000184, 2605000190, 2605000191,
+    2605000195,
+    2605000200, 2605000204, 2605000205,
+]
+_SPAO_API_HDR = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept":     "application/json",
+    "Referer":    "https://www.spao.com/",
+}
+
+def _fetch_spao_all_python() -> dict:
+    """순수 Python urllib — Node.js 없는 환경(Lambda 등)에서 SPAO 직접 수집"""
+    seen: dict = {}
+    for cat_no in _SPAO_CATEGORIES:
+        page = 1
+        while True:
+            url = (
+                f"https://www.spao.com/v1/search/leaf/cate/item/api"
+                f"?dispMctgNo={cat_no}&page={page}&pageSize=60"
+            )
+            req = urllib.request.Request(url, headers=_SPAO_API_HDR)
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except Exception:
+                break
+            outcome   = data.get("srchOutCome", {})
+            item_data = outcome.get("item", {})
+            total     = item_data.get("total", 0)
+            lst       = item_data.get("list", [])
+            for it in lst:
+                ino = str(it.get("itemNo", ""))
+                if ino and ino not in seen:
+                    sell_p = it.get("orgSellprice", 0)
+                    seen[ino] = {
+                        "itemNo":    ino,
+                        "name":      it.get("itemName", ""),
+                        "sellP":     sell_p,
+                        "saleP":     it.get("finalDcPrice", 0) or sell_p,
+                        "isSoldOut": it.get("soldOutYn", "N") == "Y",
+                    }
+            fetched = (page - 1) * 60 + len(lst)
+            if fetched >= total or len(lst) < 60:
+                break
+            page += 1
+            time.sleep(0.1)
+        time.sleep(0.1)
+    _slog(f"Python fetch complete: {len(seen)} raw items")
+    return _parse_spao_raw(list(seen.values()))
+
+
 _spao_last_stderr: str = ""   # 진단용 — /api/spao-status 에서 확인 가능
 
 def _spao_worker():
-    """백그라운드 스레드: fetch_spao.js 실행 → 캐시 갱신"""
+    """백그라운드 스레드: fetch_spao.js 실행 → 캐시 갱신 (Node.js 없으면 Python fallback)"""
     global _spao_cache, _spao_cache_time, _spao_fetching, _spao_error, _spao_last_stderr
+    import shutil as _shutil
     node_bin = _find_node()
+    _node_ok = (
+        os.path.isfile(node_bin) if os.path.isabs(node_bin)
+        else bool(_shutil.which("node"))
+    )
+
+    # ── Lambda / 클라우드: Node.js 없음 → 순수 Python으로 수집 ──
+    if not _node_ok:
+        _slog("node not found — Python fallback 시작")
+        try:
+            parsed = _fetch_spao_all_python()
+            with _spao_lock:
+                _spao_cache      = parsed
+                _spao_cache_time = time.time()
+                _spao_error      = ""
+                _spao_fetching   = False
+            _slog(f"Python fallback OK: parsed={len(parsed)}")
+        except Exception as e:
+            _slog(f"Python fallback EXCEPTION: {e}")
+            with _spao_lock:
+                _spao_error    = str(e)
+                _spao_fetching = False
+        return
+
+    # ── Node.js 있는 경우: 기존 JS 방식 ──
     _slog(f"worker start | node={node_bin}")
     try:
         result = subprocess.run(
