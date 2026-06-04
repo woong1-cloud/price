@@ -509,12 +509,15 @@ def fetch_spao_official() -> dict:
             _spao_error = str(e)
         return {}
 
-# 서버 시작 시 자동 수집
-try:
-    start_spao_refresh()
-    _slog("server start - background fetch scheduled")
-except Exception as _e:
-    _slog(f"server start error: {_e}")
+# 서버 시작 시 자동 수집 (로컬 Windows + Node.js 있는 경우만)
+# Lambda 환경에서는 백그라운드 스레드가 freeze되어 중복 요청 유발 → 요청 시 동기 수집으로 대체
+import shutil as _shutil_init
+if _shutil_init.which("node"):
+    try:
+        start_spao_refresh()
+        _slog("server start - background fetch scheduled (node mode)")
+    except Exception as _e:
+        _slog(f"server start error: {_e}")
 
 
 # ── 진단용 헬퍼 (spao-debug 에서만 사용) ──
@@ -791,10 +794,14 @@ def start_naver_refresh() -> bool:
 
 def fetch_naver() -> dict:
     """네이버 상품 반환 — 캐시 없으면 Python HTML 파싱 시도 (Lambda 호환)"""
-    global _naver_cache, _naver_cache_time, _naver_error
+    global _naver_cache, _naver_cache_time, _naver_error, _naver_fetching
     with _naver_lock:
         if _naver_cache:
             return dict(_naver_cache)
+        if _naver_fetching:
+            # 이미 수집 중 (백그라운드 or 다른 요청) → 빈 dict 반환 (429 방지)
+            return {}
+        _naver_fetching = True
     # 캐시 없음 → Python fallback 시도
     _nlog("cache empty → Python fallback start")
     try:
@@ -804,23 +811,29 @@ def fetch_naver() -> dict:
                 _naver_cache      = parsed
                 _naver_cache_time = time.time()
                 _naver_error      = ""
+                _naver_fetching   = False
             _nlog(f"Python fallback done: {len(parsed)}")
             return dict(parsed)
         else:
             _nlog("Python fallback: empty (JS rendering required or bot-blocked)")
             with _naver_lock:
-                _naver_error = "Python fallback: no data"
+                _naver_error    = "Python fallback: no data"
+                _naver_fetching = False
             return {}
     except Exception as e:
         _nlog(f"Python fallback error: {e}")
+        with _naver_lock:
+            _naver_fetching = False
         return {}
 
-# 서버 시작 시 자동 수집
-try:
-    start_naver_refresh()
-    _nlog("server start - background fetch scheduled")
-except Exception as _e:
-    _nlog(f"server start error: {_e}")
+# 서버 시작 시 자동 수집 (로컬 Windows + Node.js 있는 경우만)
+# Lambda 환경에서는 동시 요청 → 429 유발, fetch_naver()의 on-demand 수집으로 대체
+if _shutil_init.which("node"):
+    try:
+        start_naver_refresh()
+        _nlog("server start - background fetch scheduled (node mode)")
+    except Exception as _e:
+        _nlog(f"server start error: {_e}")
 
 
 # ─────────────────────────────────────────────
