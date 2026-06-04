@@ -989,5 +989,6 @@ def api_naver_run_test():
 
 
 if __name__ == "__main__":
-    print("SPAO 모니터링 서버: http://localhost:5000")
-    app.run(debug=False, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"SPAO 모니터링 서버: http://localhost:{port}")
+    app.run(debug=False, host="0.0.0.0", port=port)
