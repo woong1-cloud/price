@@ -147,50 +147,81 @@ def _collect_zigzag_graphql() -> dict:
     return products
 
 def _collect_zigzag_ssr() -> dict:
-    """SSR __nextDataReq 방식 — GitHub Actions / 클라우드 fallback (~267개)"""
+    """
+    SSR __nextDataReq 방식 + 하위 카테고리 자동 발견.
+    1단계: 메인 카테고리 수집 & root_category_list.children 에서 서브카테고리 ID 수집
+    2단계: 발견된 서브카테고리 전체 수집
+    → GraphQL 없이도 400개+ 달성 가능
+    """
     products: dict = {}
     seen_ids: set  = set()
 
-    for cat_id in _ZIGZAG_CATS:
+    def _fetch_one(cat_id) -> tuple:
+        """(추가된 상품수, 서브카테고리ID 리스트) 반환"""
         url = f"{_ZIGZAG_BASE}/{cat_id}?__nextDataReq=1"
         req = urllib.request.Request(url, headers=_ZIGZAG_HDR)
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
-            print(f"  [zigzag-ssr] cat {cat_id} 오류: {e}")
-            continue
+            print(f"  [ssr] cat {cat_id} 오류: {e}")
+            return 0, []
 
+        # 상품 수집
+        added = 0
         try:
             pages = (data["pageProps"]["dehydrated_state"]["queries"][0]
                      ["state"]["data"]["pages"])
+            for page in pages:
+                for item in page.get("item_list", []):
+                    if item.get("type") != "PRODUCT":
+                        continue
+                    pid, prod = _zigzag_item_to_product(item)
+                    if pid and pid not in seen_ids:
+                        seen_ids.add(pid)
+                        key = prod["styleCode"] or prod["styleName"]
+                        products.setdefault(key, prod)
+                        added += 1
         except (KeyError, IndexError, TypeError):
-            continue
+            pass
 
-        added = 0
-        for page in pages:
-            for item in page.get("item_list", []):
-                if item.get("type") != "PRODUCT":
-                    continue
-                prod_data = item.get("product", {})
-                pid = str(prod_data.get("catalog_product_id", ""))
-                if not pid or pid in seen_ids:
-                    continue
-                seen_ids.add(pid)
-                pid2, prod = _zigzag_item_to_product(item)
-                key = prod["styleCode"] or prod["styleName"]
-                if key not in products:
-                    products[key] = prod
-                    added += 1
+        # 서브카테고리 ID 추출 (root_category_list[].children)
+        sub_ids = []
+        try:
+            root_cats = data["pageProps"].get("root_category_list", [])
+            for rcat in root_cats:
+                for child in rcat.get("children", []):
+                    cid = str(child.get("id", ""))
+                    if cid and cid != str(cat_id):
+                        sub_ids.append(cid)
+        except Exception:
+            pass
 
-        print(f"  [zigzag-ssr] cat {cat_id}: +{added}개 (누적 {len(products)})")
+        return added, sub_ids
+
+    # 1단계: 메인 카테고리 수집 + 서브카테고리 발견
+    known = {str(c) for c in _ZIGZAG_CATS}
+    all_subs: set = set()
+    for cat_id in _ZIGZAG_CATS:
+        added, subs = _fetch_one(cat_id)
+        new_subs = [s for s in subs if s not in known]
+        all_subs.update(new_subs)
+        print(f"  [ssr] cat {cat_id}: +{added}개, 서브 {len(new_subs)}개 발견 (누적 {len(products)})")
+        time.sleep(0.3)
+
+    # 2단계: 발견된 서브카테고리 수집
+    print(f"  [ssr] 서브카테고리 {len(all_subs)}개 추가 수집...")
+    for sub_id in sorted(all_subs, key=lambda x: int(x)):
+        added, _ = _fetch_one(sub_id)
+        if added:
+            print(f"  [ssr] sub {sub_id}: +{added}개 (누적 {len(products)})")
         time.sleep(0.3)
 
     return products
 
 def collect_zigzag() -> dict:
-    """GraphQL 우선(로컬 전체 수집), 차단 시 SSR fallback"""
-    print("  [zigzag] GraphQL 방식 시도 (한국 IP → 전체 수집)...")
+    """GraphQL 우선(전체 488개), 차단 시 SSR+서브카테고리 fallback(400개+)"""
+    print("  [zigzag] GraphQL 방식 시도...")
     products = _collect_zigzag_graphql()
     if products:
         print(f"  [zigzag] GraphQL 완료: {len(products)}개")
