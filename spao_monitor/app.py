@@ -245,12 +245,13 @@ def fetch_eland():
     products = {}
     seen_items = set()
 
-    PAGE_SIZE = 100   # 이랜드몰 최대 pageSize (40/60/80/100 선택 가능)
+    PAGE_SIZE = 60   # 이랜드몰 서버가 pageSize 파라미터 무시 → 항상 60개씩 반환
+    MAX_PAGES = 50   # 카테고리당 최대 50페이지 (무한루프 방지)
     for cat_id in ELAND_CATEGORIES:
         offset = 0
-        while True:
+        for _ in range(MAX_PAGES):
             url = (f"https://spao.elandmall.co.kr/c/ctg"
-                   f"?dispCategoryNo={cat_id}&from={offset}&pageSize={PAGE_SIZE}")
+                   f"?dispCategoryNo={cat_id}&from={offset}")
             req = urllib.request.Request(url, headers=ELAND_HEADERS)
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -285,9 +286,11 @@ def fetch_eland():
                 }
 
             offset += len(items)        # 실제 수신 개수만큼 이동
-            if len(items) < PAGE_SIZE:  # 페이지가 덜 찼으면 마지막 페이지
+            if len(items) < PAGE_SIZE:  # 60개 미만 → 마지막 페이지
                 break
             time.sleep(0.3)
+        else:
+            pass  # MAX_PAGES 도달 시 자연스럽게 다음 카테고리로
 
     return products
 
