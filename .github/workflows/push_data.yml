@@ -1,0 +1,32 @@
+name: Auto Push Zigzag & Naver Data
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 30분마다 자동 실행
+  workflow_dispatch:           # GitHub 웹에서 수동 실행 버튼도 제공
+
+jobs:
+  push-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Push Zigzag data
+        env:
+          CLOUD_URL: ${{ secrets.CLOUD_URL }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+        run: python push_local.py zigzag
+
+      - name: Push Naver data
+        env:
+          CLOUD_URL: ${{ secrets.CLOUD_URL }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+        run: python push_local.py naver

@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 import urllib.request
 import urllib.error
 import json
@@ -62,94 +62,115 @@ def fetch_musinsa():
 
 
 # ─────────────────────────────────────────────
-# 지그재그
+# 지그재그 — zigzag.kr SSR(__nextDataReq) 방식
+# (api.zigzag.kr GraphQL은 Lambda IP 차단 → 우회)
 # ─────────────────────────────────────────────
-ZIGZAG_URL = "https://api.zigzag.kr/api/2/graphql"
-ZIGZAG_HEADERS = {
-    "Content-Type": "application/json",
+_ZIGZAG_BASE = "https://zigzag.kr/cq-3lzn4zqy/category"
+# 카테고리 ID 목록 (pageProps.root_category_list 에서 확인)
+_ZIGZAG_CATS = [0, 474, 2757, 436, 547, 560, 507, 795, 845, 623, 689, 1567]
+
+# 지그재그 캐시 (push 데이터 수신용)
+_zigzag_cache: dict = {}
+_zigzag_cache_time: float = 0.0
+_zigzag_lock = threading.Lock()
+_ZIGZAG_HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
     "Referer": "https://zigzag.kr/",
-    "Origin": "https://zigzag.kr",
-    "Accept": "application/json, */*",
     "Accept-Language": "ko-KR,ko;q=0.9",
-    "x-app-type": "FASHION_STORE",
 }
-ZIGZAG_QUERY = """
-fragment Prod on ShopUxProductCardItem {
-  product { catalog_product_id url name price discount_rate sales_status }
-  final_price is_zpay_discount
-}
-query GetCategoryDetailComponentList(
-  $shop_id: ID! $category_id: ID $after_id: ID
-  $sorting_item_id: ID $check_button_item_ids: [ID] $sub_filter_id_list: [ID]
-) {
-  shop_ux_component_list(
-    shop_id: $shop_id category_id: $category_id after_id: $after_id
-    sorting_item_id: $sorting_item_id check_button_item_ids: $check_button_item_ids
-    sub_filter_id_list: $sub_filter_id_list
-  ) {
-    after_id has_next_page
-    item_list {
-      type
-      ...Prod
-    }
-  }
-}
-"""
+
+# 하위 호환성 — /api/test-connections 에서 참조
+ZIGZAG_URL = "https://zigzag.kr/cq-3lzn4zqy/category/0?__nextDataReq=1"
+ZIGZAG_HEADERS = _ZIGZAG_HDR
+
+def _zlog(msg):
+    try:
+        sys.stderr.write(f"[zigzag] {msg}\n"); sys.stderr.flush()
+    except Exception:
+        pass
 
 def fetch_zigzag():
-    products = {}
-    after_id = None
-    while True:
-        variables = {
-            "shop_id": "25938",
-            "category_id": "0",
-            "after_id": after_id,
-            "check_button_item_ids": [],
-            "sorting_item_id": None,
-            "sub_filter_id_list": []
-        }
-        payload = json.dumps({"query": ZIGZAG_QUERY, "variables": variables}).encode("utf-8")
-        req = urllib.request.Request(ZIGZAG_URL, data=payload, headers=ZIGZAG_HEADERS, method="POST")
+    """
+    1순위: push로 받은 캐시 반환 (로컬 PC → 클라우드 push 방식).
+    2순위: zigzag.kr SSR ?__nextDataReq=1 직접 수집 (로컬 PC 환경 only).
+    Lambda IP는 zigzag.kr WAF에서 403 차단 → push 데이터 없으면 빈 dict.
+    """
+    with _zigzag_lock:
+        if _zigzag_cache:
+            return dict(_zigzag_cache)
+
+    products: dict = {}
+    seen_ids: set  = set()
+
+    for cat_id in _ZIGZAG_CATS:
+        url = f"{_ZIGZAG_BASE}/{cat_id}?__nextDataReq=1"
+        req = urllib.request.Request(url, headers=_ZIGZAG_HDR)
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            break
+        except Exception as e:
+            _zlog(f"cat {cat_id} 오류: {e}")
+            continue
 
-        comp_list = data.get("data", {}).get("shop_ux_component_list", {})
-        items = comp_list.get("item_list", [])
+        # 데이터 경로: pageProps → dehydrated_state → queries[0] → state.data.pages
+        try:
+            pages = (
+                data["pageProps"]["dehydrated_state"]["queries"][0]
+                ["state"]["data"]["pages"]
+            )
+        except (KeyError, IndexError, TypeError):
+            _zlog(f"cat {cat_id}: 경로 없음 (keys={list(data.get('pageProps', {}).keys())[:5]})")
+            continue
 
-        for item in items:
-            if item.get("type") != "PRODUCT":
-                continue
-            prod = item.get("product", {})
-            name = prod.get("name", "")
-            m = STYLE_CODE_RE.search(name)
-            code = m.group(1).upper() if m else ""
-            style_name = name[:m.start()].strip() if m else name
-            normal_price = prod.get("price", 0)
-            final_price  = item.get("final_price") or normal_price
-            disc_rate    = prod.get("discount_rate", 0)
-            sold_out     = prod.get("sales_status", "") != "ON_SALE"
-            pid = prod.get("catalog_product_id", "")
-            link = prod.get("url") or f"https://store.zigzag.kr/app/catalog/products/{pid}"
+        added = 0
+        for page in pages:
+            for item in page.get("item_list", []):
+                if item.get("type") != "PRODUCT":
+                    continue
+                prod = item.get("product", {})
+                pid  = str(prod.get("catalog_product_id", ""))
+                if not pid or pid in seen_ids:
+                    continue
+                seen_ids.add(pid)
 
-            products[code or name] = {
-                "styleCode":   code,
-                "styleName":   style_name,
-                "price":       final_price,
-                "normalPrice": normal_price,
-                "saleRate":    disc_rate,
-                "isSoldOut":   sold_out,
-                "link":        link,
-            }
+                name         = prod.get("name", "")
+                m            = STYLE_CODE_RE.search(name)
+                if not m:
+                    m = ELAND_CODE_RE.search(name)
+                    if m:
+                        code       = m.group(1).upper()
+                        sep        = m.group(0)[0]
+                        style_name = name[:m.start()+1].strip() if sep == ")" else name[:m.start()].strip().rstrip("_").strip()
+                    else:
+                        code, style_name = "", name
+                else:
+                    code       = m.group(1).upper()
+                    style_name = name[:m.start()].strip()
 
-        has_next = comp_list.get("has_next_page", False)
-        after_id = comp_list.get("after_id")
-        if not has_next or not after_id:
-            break
-        time.sleep(0.25)
+                normal_price = prod.get("price", 0)
+                final_price  = item.get("final_price") or normal_price
+                disc_rate    = prod.get("discount_rate", 0)
+                sold_out     = prod.get("sales_status", "") != "ON_SALE"
+                link         = prod.get("url") or f"https://store.zigzag.kr/app/catalog/products/{pid}"
+
+                key = code or name
+                if key not in products:
+                    products[key] = {
+                        "styleCode":   code,
+                        "styleName":   style_name,
+                        "price":       final_price,
+                        "normalPrice": normal_price,
+                        "saleRate":    disc_rate,
+                        "isSoldOut":   sold_out,
+                        "link":        link,
+                    }
+                    added += 1
+
+        _zlog(f"cat {cat_id}: +{added}개 (누적 {len(products)})")
+        time.sleep(0.3)
+
+    _zlog(f"fetch 완료: 총 {len(products)}개")
     return products
 
 
@@ -547,7 +568,9 @@ _naver_cache: dict = {}
 _naver_cache_time: float = 0.0
 _naver_fetching: bool = False
 _naver_error: str = ""
+_naver_error_time: float = 0.0   # 마지막 에러 발생 시각 (backoff용)
 _naver_lock = threading.Lock()
+_NAVER_BACKOFF = 180  # 에러 후 재시도 대기 (초)
 
 def _parse_naver_raw(raw: list) -> dict:
     """네이버 raw JSON 리스트 → 채널 상품 dict 변환"""
@@ -794,15 +817,16 @@ def start_naver_refresh() -> bool:
 
 def fetch_naver() -> dict:
     """네이버 상품 반환 — 캐시 없으면 Python HTML 파싱 시도 (Lambda 호환)"""
-    global _naver_cache, _naver_cache_time, _naver_error, _naver_fetching
+    global _naver_cache, _naver_cache_time, _naver_error, _naver_error_time, _naver_fetching
     with _naver_lock:
         if _naver_cache:
             return dict(_naver_cache)
         if _naver_fetching:
-            # 이미 수집 중 (백그라운드 or 다른 요청) → 빈 dict 반환 (429 방지)
+            return {}
+        # 최근 에러 → backoff (Lambda IP 차단 시 반복 요청 방지)
+        if _naver_error and (time.time() - _naver_error_time) < _NAVER_BACKOFF:
             return {}
         _naver_fetching = True
-    # 캐시 없음 → Python fallback 시도
     _nlog("cache empty → Python fallback start")
     try:
         parsed = _fetch_naver_all_python()
@@ -815,15 +839,18 @@ def fetch_naver() -> dict:
             _nlog(f"Python fallback done: {len(parsed)}")
             return dict(parsed)
         else:
-            _nlog("Python fallback: empty (JS rendering required or bot-blocked)")
+            _nlog("Python fallback: empty (IP blocked or JS-only)")
             with _naver_lock:
-                _naver_error    = "Python fallback: no data"
-                _naver_fetching = False
+                _naver_error      = "no data (IP blocked or JS-only)"
+                _naver_error_time = time.time()
+                _naver_fetching   = False
             return {}
     except Exception as e:
         _nlog(f"Python fallback error: {e}")
         with _naver_lock:
-            _naver_fetching = False
+            _naver_error      = str(e)
+            _naver_error_time = time.time()
+            _naver_fetching   = False
         return {}
 
 # 서버 시작 시 자동 수집 (로컬 Windows + Node.js 있는 경우만)
@@ -1265,22 +1292,22 @@ def api_test_connections():
         return {"ok": True, "status": r.getcode(), "items": len(lst)}
     _try("musinsa", _musinsa)
 
-    # Zigzag
+    # Zigzag (SSR __nextDataReq 방식 — GraphQL API 우회)
     def _zigzag():
-        vars_ = {"shop_id": "25938", "category_id": "0", "after_id": None,
-                 "check_button_item_ids": [], "sorting_item_id": None, "sub_filter_id_list": []}
-        payload = json.dumps({"query": ZIGZAG_QUERY, "variables": vars_}).encode("utf-8")
-        req = urllib.request.Request(ZIGZAG_URL, data=payload, headers=ZIGZAG_HEADERS, method="POST")
+        url = f"{_ZIGZAG_BASE}/0?__nextDataReq=1"
+        req = urllib.request.Request(url, headers=_ZIGZAG_HDR)
         with urllib.request.urlopen(req, timeout=10) as r:
             raw = r.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
-        comp = data.get("data", {}).get("shop_ux_component_list", {})
-        lst  = comp.get("item_list", [])
+        try:
+            pages = data["pageProps"]["dehydrated_state"]["queries"][0]["state"]["data"]["pages"]
+            items = [i for p in pages for i in p.get("item_list", []) if i.get("type") == "PRODUCT"]
+        except (KeyError, IndexError, TypeError):
+            items = []
         return {
-            "ok": True, "status": r.getcode(), "items": len(lst),
+            "ok": True, "status": r.getcode(), "items": len(items),
             "top_keys": list(data.keys()),
-            "comp_keys": list(comp.keys()) if isinstance(comp, dict) else [],
-            "raw_preview": raw[:1200],
+            "raw_preview": raw[:800],
         }
     _try("zigzag", _zigzag)
 
@@ -1307,6 +1334,68 @@ def api_test_connections():
     _try("naver", _naver)
 
     return jsonify(out)
+
+
+# ─────────────────────────────────────────────
+# 로컬 PC → 클라우드 데이터 push 엔드포인트
+# 지그재그/네이버처럼 Lambda IP 차단된 채널을
+# 로컬 PC에서 수집해 push_local.py 로 전송
+# ─────────────────────────────────────────────
+_PUSH_SECRET = os.environ.get("PUSH_SECRET", "spao-push-key")
+
+@app.route("/api/push-channel", methods=["POST"])
+def api_push_channel():
+    """
+    로컬 PC에서 채널 데이터를 직접 전송.
+    body: { "secret": "...", "channel": "zigzag"|"naver", "products": {...} }
+    """
+    global _zigzag_cache, _zigzag_cache_time
+    global _naver_cache, _naver_cache_time, _naver_error
+
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid JSON"}), 400
+
+    if data.get("secret") != _PUSH_SECRET:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    channel  = data.get("channel", "")
+    products = data.get("products", {})
+
+    if not channel or not isinstance(products, dict):
+        return jsonify({"ok": False, "error": "channel/products missing"}), 400
+
+    if channel == "zigzag":
+        with _zigzag_lock:
+            _zigzag_cache      = products
+            _zigzag_cache_time = time.time()
+        return jsonify({"ok": True, "channel": "zigzag", "items": len(products)})
+
+    elif channel == "naver":
+        with _naver_lock:
+            _naver_cache      = products
+            _naver_cache_time = time.time()
+            _naver_error      = ""
+        return jsonify({"ok": True, "channel": "naver", "items": len(products)})
+
+    else:
+        return jsonify({"ok": False, "error": f"unknown channel: {channel}"}), 400
+
+
+@app.route("/api/push-status")
+def api_push_status():
+    """push 캐시 현황 확인"""
+    with _zigzag_lock:
+        zz_items = len(_zigzag_cache)
+        zz_time  = _zigzag_cache_time
+    with _naver_lock:
+        nv_items = len(_naver_cache)
+        nv_time  = _naver_cache_time
+    return jsonify({
+        "zigzag": {"items": zz_items, "lastPush": zz_time},
+        "naver":  {"items": nv_items, "lastPush": nv_time},
+    })
 
 
 if __name__ == "__main__":
