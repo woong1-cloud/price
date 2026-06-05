@@ -101,6 +101,11 @@ _zigzag_lock = threading.Lock()
 # 서버 시작 시 디스크 캐시 로드
 _zigzag_cache = _disk_load("zigzag.json")
 if _zigzag_cache:
+    _zigzag_cache_f = _CACHE_DIR / "zigzag.json"
+    try:
+        _zigzag_cache_time = _zigzag_cache_f.stat().st_mtime
+    except Exception:
+        _zigzag_cache_time = time.time()
     sys.stderr.write(f"[zigzag] disk cache loaded: {len(_zigzag_cache)}개\n")
 _ZIGZAG_HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -609,6 +614,12 @@ _NAVER_BACKOFF = 180  # 에러 후 재시도 대기 (초)
 # 서버 시작 시 디스크 캐시 로드
 _naver_cache = _disk_load("naver.json")
 if _naver_cache:
+    # 파일 수정 시각으로 cache_time 복원 → 재시작 후에도 타임스탬프 유지
+    _naver_cache_f = _CACHE_DIR / "naver.json"
+    try:
+        _naver_cache_time = _naver_cache_f.stat().st_mtime
+    except Exception:
+        _naver_cache_time = time.time()
     sys.stderr.write(f"[naver] disk cache loaded: {len(_naver_cache)}개\n")
 
 def _parse_naver_raw(raw: list) -> dict:
