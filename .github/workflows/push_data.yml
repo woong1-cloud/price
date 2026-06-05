@@ -5,6 +5,9 @@ on:
     - cron: '*/30 * * * *'   # 30분마다 자동 실행
   workflow_dispatch:           # GitHub 웹에서 수동 실행 버튼도 제공
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   push-data:
     runs-on: ubuntu-latest
