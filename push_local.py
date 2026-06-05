@@ -22,6 +22,13 @@ import re
 import urllib.request
 import threading
 
+# Windows 콘솔(cp949) 또는 파일 리다이렉션 환경에서 한글+특수문자 깨짐 방지
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # ── 설정 ──────────────────────────────────────────────
 # 환경변수 우선, 없으면 기본값 사용
 # GitHub Actions: Settings → Secrets → CLOUD_URL, PUSH_SECRET 등록
@@ -368,12 +375,21 @@ def collect_naver() -> dict:
                 stdin=subprocess.DEVNULL, timeout=300,
                 cwd=_SCRIPT_DIR,
             )
+            # ── stderr 항상 출력 (차단 여부·진행 상황 확인) ──
+            stderr = result.stdout and result.stderr.decode("utf-8", errors="replace").strip()
+            if stderr:
+                for line in stderr.splitlines():
+                    print(f"    [pw] {line}")
+
             stdout = result.stdout.decode("utf-8", errors="replace").strip()
             if stdout and stdout != "[]":
                 raw  = json.loads(stdout)
                 prod = _parse_naver_raw(raw)
                 print(f"  [naver] Playwright 완료: {len(prod)}개")
                 return prod
+            else:
+                # 빈 결과 원인 출력
+                print(f"  [naver] Playwright stdout='{stdout[:80] if stdout else '(empty)'}' exit={result.returncode}")
         except Exception as e:
             print(f"  [naver] Playwright 실패: {e}")
 
