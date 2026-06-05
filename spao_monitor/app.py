@@ -216,10 +216,12 @@ def fetch_eland():
     products = {}
     seen_items = set()
 
+    PAGE_SIZE = 100   # 이랜드몰 최대 pageSize (40/60/80/100 선택 가능)
     for cat_id in ELAND_CATEGORIES:
         offset = 0
         while True:
-            url = f"https://spao.elandmall.co.kr/c/ctg?dispCategoryNo={cat_id}&from={offset}"
+            url = (f"https://spao.elandmall.co.kr/c/ctg"
+                   f"?dispCategoryNo={cat_id}&from={offset}&pageSize={PAGE_SIZE}")
             req = urllib.request.Request(url, headers=ELAND_HEADERS)
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -253,8 +255,8 @@ def fetch_eland():
                     "link":        f"https://spao.elandmall.co.kr/i/item?itemNo={item_no}",
                 }
 
-            offset += 60
-            if len(items) < 60:
+            offset += len(items)        # 실제 수신 개수만큼 이동
+            if len(items) < PAGE_SIZE:  # 페이지가 덜 찼으면 마지막 페이지
                 break
             time.sleep(0.3)
 
