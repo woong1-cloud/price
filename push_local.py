@@ -48,8 +48,11 @@ def _extract_code(name: str):
 
 
 # ─────────────────────────────────────────────
-# 지그재그 수집 (SSR __nextDataReq 방식)
+# 지그재그 수집
+# 1순위: GraphQL API (로컬 한국 IP → 전체 488개 수집 가능)
+# 2순위: SSR __nextDataReq (GitHub Actions Azure IP → ~267개)
 # ─────────────────────────────────────────────
+_ZIGZAG_API_URL = "https://api.zigzag.kr/api/2/graphql"
 _ZIGZAG_BASE = "https://zigzag.kr/cq-3lzn4zqy/category"
 _ZIGZAG_CATS = [0, 474, 2757, 436, 547, 560, 507, 795, 845, 623, 689, 1567]
 _ZIGZAG_HDR = {
@@ -58,9 +61,93 @@ _ZIGZAG_HDR = {
     "Referer": "https://zigzag.kr/",
     "Accept-Language": "ko-KR,ko;q=0.9",
 }
+_ZIGZAG_API_HDR = {
+    **_ZIGZAG_HDR,
+    "Content-Type": "application/json",
+    "Origin": "https://zigzag.kr",
+    "x-app-type": "FASHION_STORE",
+}
+_ZIGZAG_QUERY = """
+fragment Prod on ShopUxProductCardItem {
+  product { catalog_product_id url name price discount_rate sales_status }
+  final_price
+}
+query GetCategoryList($shop_id:ID! $category_id:ID $after_id:ID) {
+  shop_ux_component_list(shop_id:$shop_id category_id:$category_id after_id:$after_id) {
+    after_id has_next_page
+    item_list { type ...Prod }
+  }
+}
+"""
 
+def _zigzag_item_to_product(item: dict) -> tuple:
+    """GraphQL item → (pid, product_dict) 반환"""
+    prod         = item.get("product", {})
+    pid          = str(prod.get("catalog_product_id", ""))
+    name         = prod.get("name", "")
+    code, style  = _extract_code(name)
+    normal_price = prod.get("price", 0)
+    final_price  = item.get("final_price") or normal_price
+    disc_rate    = prod.get("discount_rate", 0)
+    sold_out     = prod.get("sales_status", "") != "ON_SALE"
+    link         = prod.get("url") or f"https://store.zigzag.kr/app/catalog/products/{pid}"
+    return pid, {
+        "styleCode":   code,
+        "styleName":   style,
+        "price":       final_price,
+        "normalPrice": normal_price,
+        "saleRate":    disc_rate,
+        "isSoldOut":   sold_out,
+        "link":        link,
+    }
 
-def collect_zigzag() -> dict:
+def _collect_zigzag_graphql() -> dict:
+    """GraphQL API 방식 — 로컬 한국 IP에서만 작동 (전체 488개 수집)"""
+    products: dict = {}
+    seen_ids: set  = set()
+    after_id       = None
+
+    while True:
+        variables = {
+            "shop_id": "25938", "category_id": "0",
+            "after_id": after_id,
+        }
+        payload = json.dumps({"query": _ZIGZAG_QUERY, "variables": variables}).encode()
+        req = urllib.request.Request(_ZIGZAG_API_URL, data=payload,
+                                     headers=_ZIGZAG_API_HDR, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            print(f"  [zigzag-gql] 오류: {e}")
+            return {}   # 실패 → SSR 방식으로 전환
+
+        comp = data.get("data", {}).get("shop_ux_component_list", {})
+        # GraphQL이 차단되면 data가 {} 또는 errors 반환
+        if not comp or "errors" in data:
+            print(f"  [zigzag-gql] 차단됨 (GraphQL 사용 불가) → SSR 방식으로 전환")
+            return {}
+
+        for item in comp.get("item_list", []):
+            if item.get("type") != "PRODUCT":
+                continue
+            pid, prod = _zigzag_item_to_product(item)
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                key = prod["styleCode"] or prod["styleName"]
+                products.setdefault(key, prod)
+
+        has_next = comp.get("has_next_page", False)
+        after_id = comp.get("after_id")
+        print(f"  [zigzag-gql] 누적 {len(products)}개 (has_next={has_next})")
+        if not has_next or not after_id:
+            break
+        time.sleep(0.3)
+
+    return products
+
+def _collect_zigzag_ssr() -> dict:
+    """SSR __nextDataReq 방식 — GitHub Actions / 클라우드 fallback (~267개)"""
     products: dict = {}
     seen_ids: set  = set()
 
@@ -71,16 +158,13 @@ def collect_zigzag() -> dict:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
-            print(f"  [zigzag] cat {cat_id} 오류: {e}")
+            print(f"  [zigzag-ssr] cat {cat_id} 오류: {e}")
             continue
 
         try:
-            pages = (
-                data["pageProps"]["dehydrated_state"]["queries"][0]
-                ["state"]["data"]["pages"]
-            )
+            pages = (data["pageProps"]["dehydrated_state"]["queries"][0]
+                     ["state"]["data"]["pages"])
         except (KeyError, IndexError, TypeError):
-            print(f"  [zigzag] cat {cat_id}: 데이터 경로 없음")
             continue
 
         added = 0
@@ -88,37 +172,34 @@ def collect_zigzag() -> dict:
             for item in page.get("item_list", []):
                 if item.get("type") != "PRODUCT":
                     continue
-                prod = item.get("product", {})
-                pid  = str(prod.get("catalog_product_id", ""))
+                prod_data = item.get("product", {})
+                pid = str(prod_data.get("catalog_product_id", ""))
                 if not pid or pid in seen_ids:
                     continue
                 seen_ids.add(pid)
-
-                name         = prod.get("name", "")
-                code, style  = _extract_code(name)
-                normal_price = prod.get("price", 0)
-                final_price  = item.get("final_price") or normal_price
-                disc_rate    = prod.get("discount_rate", 0)
-                sold_out     = prod.get("sales_status", "") != "ON_SALE"
-                link         = prod.get("url") or f"https://store.zigzag.kr/app/catalog/products/{pid}"
-
-                key = code or name
+                pid2, prod = _zigzag_item_to_product(item)
+                key = prod["styleCode"] or prod["styleName"]
                 if key not in products:
-                    products[key] = {
-                        "styleCode":   code,
-                        "styleName":   style,
-                        "price":       final_price,
-                        "normalPrice": normal_price,
-                        "saleRate":    disc_rate,
-                        "isSoldOut":   sold_out,
-                        "link":        link,
-                    }
+                    products[key] = prod
                     added += 1
 
-        print(f"  [zigzag] cat {cat_id}: +{added}개 (누적 {len(products)})")
+        print(f"  [zigzag-ssr] cat {cat_id}: +{added}개 (누적 {len(products)})")
         time.sleep(0.3)
 
     return products
+
+def collect_zigzag() -> dict:
+    """GraphQL 우선(로컬 전체 수집), 차단 시 SSR fallback"""
+    print("  [zigzag] GraphQL 방식 시도 (한국 IP → 전체 수집)...")
+    products = _collect_zigzag_graphql()
+    if products:
+        print(f"  [zigzag] GraphQL 완료: {len(products)}개")
+        return products
+    print("  [zigzag] SSR 방식으로 전환...")
+    products = _collect_zigzag_ssr()
+    print(f"  [zigzag] SSR 완료: {len(products)}개")
+    return products
+
 
 
 # ─────────────────────────────────────────────

@@ -69,10 +69,39 @@ _ZIGZAG_BASE = "https://zigzag.kr/cq-3lzn4zqy/category"
 # 카테고리 ID 목록 (pageProps.root_category_list 에서 확인)
 _ZIGZAG_CATS = [0, 474, 2757, 436, 547, 560, 507, 795, 845, 623, 689, 1567]
 
-# 지그재그 캐시 (push 데이터 수신용)
+# ── 디스크 캐시 경로 (서버 재시작 후에도 데이터 유지) ──
+import pathlib as _pathlib
+_CACHE_DIR = _pathlib.Path(os.path.dirname(os.path.abspath(__file__))) / "cache"
+
+def _disk_save(filename: str, data: dict):
+    """캐시 데이터를 파일로 저장 (원자적 write)"""
+    try:
+        _CACHE_DIR.mkdir(exist_ok=True)
+        tmp = _CACHE_DIR / (filename + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.rename(_CACHE_DIR / filename)
+    except Exception as e:
+        sys.stderr.write(f"[cache] save error {filename}: {e}\n")
+
+def _disk_load(filename: str) -> dict:
+    """파일에서 캐시 데이터 로드"""
+    try:
+        f = _CACHE_DIR / filename
+        if f.exists():
+            return json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        sys.stderr.write(f"[cache] load error {filename}: {e}\n")
+    return {}
+
+# 지그재그 캐시 (push 데이터 수신용 + 디스크 영속)
 _zigzag_cache: dict = {}
 _zigzag_cache_time: float = 0.0
 _zigzag_lock = threading.Lock()
+
+# 서버 시작 시 디스크 캐시 로드
+_zigzag_cache = _disk_load("zigzag.json")
+if _zigzag_cache:
+    sys.stderr.write(f"[zigzag] disk cache loaded: {len(_zigzag_cache)}개\n")
 _ZIGZAG_HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json",
@@ -573,6 +602,11 @@ _naver_error: str = ""
 _naver_error_time: float = 0.0   # 마지막 에러 발생 시각 (backoff용)
 _naver_lock = threading.Lock()
 _NAVER_BACKOFF = 180  # 에러 후 재시도 대기 (초)
+
+# 서버 시작 시 디스크 캐시 로드
+_naver_cache = _disk_load("naver.json")
+if _naver_cache:
+    sys.stderr.write(f"[naver] disk cache loaded: {len(_naver_cache)}개\n")
 
 def _parse_naver_raw(raw: list) -> dict:
     """네이버 raw JSON 리스트 → 채널 상품 dict 변환"""
@@ -1372,6 +1406,7 @@ def api_push_channel():
         with _zigzag_lock:
             _zigzag_cache      = products
             _zigzag_cache_time = time.time()
+        _disk_save("zigzag.json", products)   # 디스크 저장 → 재시작 후에도 유지
         return jsonify({"ok": True, "channel": "zigzag", "items": len(products)})
 
     elif channel == "naver":
@@ -1379,6 +1414,7 @@ def api_push_channel():
             _naver_cache      = products
             _naver_cache_time = time.time()
             _naver_error      = ""
+        _disk_save("naver.json", products)    # 디스크 저장
         return jsonify({"ok": True, "channel": "naver", "items": len(products)})
 
     else:
