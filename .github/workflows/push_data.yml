@@ -2,8 +2,10 @@ name: Auto Push Zigzag & Naver Data
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # 30분마다 자동 실행
+    - cron: '*/15 * * * *'   # 15분마다 자동 실행 (더 자주 갱신)
   workflow_dispatch:           # GitHub 웹에서 수동 실행 버튼도 제공
+  push:
+    branches: [ main ]         # 코드 배포(push) 시 자동으로 데이터도 재push
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
