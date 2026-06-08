@@ -93,12 +93,34 @@ def _disk_load(filename: str) -> dict:
         sys.stderr.write(f"[cache] load error {filename}: {e}\n")
     return {}
 
+
+_GITHUB_RAW_BASE = (
+    "https://raw.githubusercontent.com/woong1-cloud/price/main/data"
+)
+
+def _github_load(filename: str) -> dict:
+    """Lambda cold start 시 GitHub raw에서 캐시 로드 (disk 실패 fallback)"""
+    try:
+        url = f"{_GITHUB_RAW_BASE}/{filename}?t={int(time.time())}"
+        req = urllib.request.Request(
+            url,
+            headers={"Cache-Control": "no-cache", "User-Agent": "spao-monitor/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            if data:
+                sys.stderr.write(f"[cache] github loaded {filename}: {len(data)}개\n")
+            return data
+    except Exception as e:
+        sys.stderr.write(f"[cache] github load error {filename}: {e}\n")
+        return {}
+
 # 지그재그 캐시 (push 데이터 수신용 + 디스크 영속)
 _zigzag_cache: dict = {}
 _zigzag_cache_time: float = 0.0
 _zigzag_lock = threading.Lock()
 
-# 서버 시작 시 디스크 캐시 로드
+# 서버 시작 시 디스크 캐시 로드 → 실패 시 GitHub raw fallback
 _zigzag_cache = _disk_load("zigzag.json")
 if _zigzag_cache:
     _zigzag_cache_f = _CACHE_DIR / "zigzag.json"
@@ -107,6 +129,10 @@ if _zigzag_cache:
     except Exception:
         _zigzag_cache_time = time.time()
     sys.stderr.write(f"[zigzag] disk cache loaded: {len(_zigzag_cache)}개\n")
+else:
+    _zigzag_cache = _github_load("zigzag.json")
+    if _zigzag_cache:
+        _zigzag_cache_time = time.time()
 _ZIGZAG_HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json",
@@ -611,7 +637,7 @@ _naver_error_time: float = 0.0   # 마지막 에러 발생 시각 (backoff용)
 _naver_lock = threading.Lock()
 _NAVER_BACKOFF = 180  # 에러 후 재시도 대기 (초)
 
-# 서버 시작 시 디스크 캐시 로드
+# 서버 시작 시 디스크 캐시 로드 → 실패 시 GitHub raw fallback
 _naver_cache = _disk_load("naver.json")
 if _naver_cache:
     # 파일 수정 시각으로 cache_time 복원 → 재시작 후에도 타임스탬프 유지
@@ -621,6 +647,10 @@ if _naver_cache:
     except Exception:
         _naver_cache_time = time.time()
     sys.stderr.write(f"[naver] disk cache loaded: {len(_naver_cache)}개\n")
+else:
+    _naver_cache = _github_load("naver.json")
+    if _naver_cache:
+        _naver_cache_time = time.time()
 
 def _parse_naver_raw(raw: list) -> dict:
     """네이버 raw JSON 리스트 → 채널 상품 dict 변환"""

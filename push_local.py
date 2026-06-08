@@ -425,6 +425,48 @@ def push_to_cloud(channel: str, products: dict) -> bool:
 
 
 # ─────────────────────────────────────────────
+# GitHub 영구 캐시 저장 (Lambda 다중 인스턴스 대응)
+# ─────────────────────────────────────────────
+_DATA_DIR = os.path.join(_SCRIPT_DIR, "data")
+
+def _save_data_json(channel: str, products: dict) -> bool:
+    """수집 데이터를 data/{channel}.json 에 저장 (CI/로컬 공통)"""
+    try:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        filepath = os.path.join(_DATA_DIR, f"{channel}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(products, f, ensure_ascii=False, separators=(",", ":"))
+        print(f"  [{channel}] data/{channel}.json 저장 완료")
+        return True
+    except Exception as e:
+        print(f"  [{channel}] 파일 저장 실패: {e}")
+        return False
+
+
+def _git_push_data(channel: str):
+    """data/ 파일을 git commit·push — 로컬 전용 (CI는 workflow에서 처리)"""
+    import subprocess as _sp
+    filepath = os.path.join(_DATA_DIR, f"{channel}.json")
+    try:
+        _sp.run(["git", "add", filepath], cwd=_SCRIPT_DIR, check=True,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        diff = _sp.run(["git", "diff", "--cached", "--quiet"], cwd=_SCRIPT_DIR)
+        if diff.returncode == 0:
+            print(f"  [{channel}] 데이터 변경 없음 (git skip)")
+            return
+        _sp.run(
+            ["git", "commit", "-m", f"[skip ci] data: update {channel}.json"],
+            cwd=_SCRIPT_DIR, check=True,
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        )
+        _sp.run(["git", "push", "origin", "main"], cwd=_SCRIPT_DIR, check=True,
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        print(f"  [{channel}] GitHub data/{channel}.json 업데이트 완료")
+    except Exception as e:
+        print(f"  [{channel}] git push 실패 (무시): {e}")
+
+
+# ─────────────────────────────────────────────
 # 메인
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
@@ -449,6 +491,10 @@ if __name__ == "__main__":
 
         if products:
             push_to_cloud(target, products)
+            # GitHub 영구 캐시 갱신 (Lambda cold start 복원용)
+            if _save_data_json(target, products):
+                if not os.environ.get("CI"):   # 로컬 실행 시에만 git push
+                    _git_push_data(target)
         else:
             print(f"[{target}] 수집된 상품 없음 — push 생략")
 

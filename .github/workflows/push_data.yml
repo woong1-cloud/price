@@ -2,13 +2,16 @@ name: Auto Push Zigzag & Naver Data
 
 on:
   schedule:
-    - cron: '*/15 * * * *'   # 15분마다 자동 실행 (더 자주 갱신)
-  workflow_dispatch:           # GitHub 웹에서 수동 실행 버튼도 제공
+    - cron: '*/15 * * * *'   # 15분마다 자동 실행
+  workflow_dispatch:           # GitHub 웹에서 수동 실행 버튼
   push:
-    branches: [ main ]         # 코드 배포(push) 시 자동으로 데이터도 재push
+    branches: [ main ]         # 코드 배포 시 자동으로 데이터도 재push
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write              # data/ 커밋을 위해 필요
 
 jobs:
   push-data:
@@ -35,6 +38,14 @@ jobs:
           CLOUD_URL: ${{ secrets.CLOUD_URL }}
           PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: python push_local.py zigzag
+
+      - name: Commit zigzag cache to repo
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add data/zigzag.json || true
+          git diff --cached --quiet || git commit -m "[skip ci] data: update zigzag.json"
+          git push || true
 
       - name: Push Naver data
         env:
