@@ -496,13 +496,25 @@ function ItemGenderTable({ itemGenderMatrix }) {
   if (!itemGenderMatrix || itemGenderMatrix.length === 0) return null
   const maxVal = Math.max(...itemGenderMatrix.map(r => r.total), 1)
 
-  const cellStyle = (val) => ({
-    textAlign: 'right',
-    padding: '5px 10px',
-    fontSize: '0.75rem',
-    color: val > 0 ? '#1A1A1A' : '#C4C4C0',
-    background: val > 0 ? heatColor(val, maxVal, 0.18) : 'transparent',
-  })
+  const cellStyle = (val) => {
+    const ratio = maxVal > 0 ? Math.min(val / maxVal, 1) : 0
+    return {
+      textAlign: 'right',
+      padding: '5px 10px',
+      fontSize: '0.75rem',
+      color: val > 0 ? (ratio > 0.6 ? '#fff' : '#1A1A1A') : '#C4C4C0',
+      background: val > 0 ? heatColor(ratio) : 'transparent',
+    }
+  }
+
+  // 성별 열 합계 계산
+  const colTotals = {}
+  let grandTotal = 0
+  for (const g of [...IG_COLS]) {
+    colTotals[g] = itemGenderMatrix.reduce((s, r) => s + (r[g] || 0), 0)
+    grandTotal += colTotals[g]
+  }
+  const totalSkuCount = itemGenderMatrix.reduce((s, r) => s + r.skuCount, 0)
 
   return (
     <div style={{ background: '#fff', borderRadius: 12, padding: '20px 22px', border: '1px solid #E8E8E6' }}>
@@ -520,6 +532,29 @@ function ItemGenderTable({ itemGenderMatrix }) {
             </tr>
           </thead>
           <tbody>
+            {/* 합계 행 — 상단 고정 */}
+            <tr style={{ borderBottom: '2px solid #E8E8E6', background: '#F0F4FF' }}>
+              <td style={{ padding: '7px 10px', fontWeight: 700, fontSize: '0.8125rem', color: '#1A1A1A' }}>전체 합계</td>
+              {IG_COLS.map(g => {
+                const pct = grandTotal > 0 ? (colTotals[g] / grandTotal * 100).toFixed(1) : '0.0'
+                return (
+                  <td key={g} style={{ textAlign: 'right', padding: '7px 10px', fontWeight: 700, fontSize: '0.75rem', color: colTotals[g] > 0 ? (GENDER_COLOR[g] || '#1A1A1A') : '#C4C4C0' }}>
+                    {colTotals[g] > 0 ? (
+                      <span>
+                        {fmt억(colTotals[g])}<br />
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 400, color: '#6B6B68' }}>{pct}%</span>
+                      </span>
+                    ) : '—'}
+                  </td>
+                )
+              })}
+              <td style={{ textAlign: 'right', padding: '7px 10px', fontWeight: 700, fontSize: '0.8125rem', color: '#378ADD', background: '#EFF6FF' }}>
+                {fmt억(grandTotal)}
+              </td>
+              <td style={{ textAlign: 'right', padding: '7px 10px', color: '#6B6B68', fontSize: '0.75rem' }}>
+                {totalSkuCount}개
+              </td>
+            </tr>
             {itemGenderMatrix.map((row, i) => (
               <tr key={row.itemName} style={{ borderBottom: '1px solid #F0F0EE', background: i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                 <td style={{ padding: '5px 10px', fontWeight: 600, fontSize: '0.8125rem' }}>{row.itemName}</td>

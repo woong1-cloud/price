@@ -471,7 +471,10 @@ export function detectFileKey(headers) {
   // 1. 검색 실적 — '검색어' + '검색량'
   if (has('검색어') && (has('검색량') || exact('uv'))) return 'search'
 
-  // 2. 매장 종합 실적 — '매장그룹' 이 고유 식별자
+  // 2-a. 매장 코너 실적 — '코너번호' 또는 '매장상세명' 이 고유 식별자 (매장 종합보다 먼저 체크)
+  if (has('코너번호') || has('매장상세명')) return 'storeCorner'
+
+  // 2-b. 매장 종합 실적 — '매장그룹' 이 고유 식별자
   if (has('매장그룹')) return 'store'
 
   // 3. 장바구니 퍼널 파일 — '포기율' 또는 '담긴 건수' 또는 '결제 완료'
@@ -500,7 +503,87 @@ export function detectFileKey(headers) {
   return null
 }
 
+// ─── 9. 매장 코너 실적 ───────────────────────────────────────────────────────
+// 헤더: No. | 날짜 | 매체 | 매장그룹 | 매장 | 매장상세번호 | 매장상세명 | 코너번호 | 코너명 |
+//       컨텐츠유형 | 컨텐츠유형명 | 컨텐츠번호 | 컨텐츠명 | 전시순서 |
+//       순클릭수 | 매장노출수 | CTR | 주문자수 | 주문건수 | 주문수량 | 주문금액 |
+//       실주문건수 | 실주문수량 | 실주문금액 | ...
+export function parseStoreCorner(rows) {
+  if (!rows || rows.length < 2) return { sigma: {}, items: [], period: '' }
+
+  const headers = rows[0].map(toStr)
+  const idx = {
+    date:        headers.findIndex(h => h.includes('날짜') || h.includes('일자')),
+    media:       headers.findIndex(h => h.includes('매체') || h.includes('채널')),
+    storeGroup:  headers.findIndex(h => h.includes('매장그룹')),
+    store:       headers.findIndex(h => h === '매장' || (h.includes('매장') && !h.includes('그룹') && !h.includes('상세') && !h.includes('노출'))),
+    detailNo:    headers.findIndex(h => h.includes('매장상세번호') || h.includes('상세번호')),
+    detailName:  headers.findIndex(h => h.includes('매장상세명') || h.includes('상세명')),
+    cornerNo:    headers.findIndex(h => h.includes('코너번호')),
+    cornerName:  headers.findIndex(h => h.includes('코너명') && !h.includes('번호')),
+    contentType: headers.findIndex(h => h.includes('컨텐츠유형') && !h.includes('명')),
+    contentTypeName: headers.findIndex(h => h.includes('컨텐츠유형명')),
+    contentNo:   headers.findIndex(h => h.includes('컨텐츠번호')),
+    contentName: headers.findIndex(h => h.includes('컨텐츠명') && !h.includes('번호') && !h.includes('유형')),
+    displayOrder:headers.findIndex(h => h.includes('전시순서')),
+    clicks:      headers.findIndex(h => h.includes('순클릭') || h.includes('클릭수')),
+    impressions: headers.findIndex(h => h.includes('매장노출') || h.includes('노출수')),
+    ctr:         headers.findIndex(h => h.toUpperCase() === 'CTR'),
+    buyerCnt:    headers.findIndex(h => h.includes('주문자수') || h.includes('구매자')),
+    orderCnt:    headers.findIndex(h => h === '주문건수' || (h.includes('주문건') && !h.includes('실'))),
+    realOrderCnt:headers.findIndex(h => h.includes('실주문건수') || h.includes('실주문건')),
+    realAmt:     headers.findIndex(h => h === '실주문금액' || (h.includes('실주문금액') && !h.includes('원판'))),
+    discountAmt: headers.findIndex(h => h.includes('혜택할인') || h.includes('할인금액')),
+    totalBenefit:headers.findIndex(h => h.includes('전체혜택')),
+  }
+
+  const sigmaRow = rows.find(r => toStr(r[0]) === 'Σ') || rows[1]
+  const sigmaObj = {
+    clicks:       idx.clicks >= 0 ? toNum(sigmaRow[idx.clicks]) : 0,
+    impressions:  idx.impressions >= 0 ? toNum(sigmaRow[idx.impressions]) : 0,
+    realAmt:      idx.realAmt >= 0 ? toNum(sigmaRow[idx.realAmt]) : 0,
+  }
+
+  const PREFIX = '스파오공홈_P_'
+
+  const items = rows.slice(1)
+    .filter(r => toStr(r[0]) !== 'Σ' && r.some(c => toStr(c) !== ''))
+    .map(r => {
+      const storeName = idx.store >= 0 ? toStr(r[idx.store]) : ''
+      const ctr = idx.ctr >= 0 ? toNum(r[idx.ctr]) : 0
+      return {
+        date:         idx.date >= 0 ? toStr(r[idx.date]) : '',
+        media:        idx.media >= 0 ? toStr(r[idx.media]) : '',
+        storeGroup:   idx.storeGroup >= 0 ? toStr(r[idx.storeGroup]) : '',
+        store:        storeName.startsWith(PREFIX) ? storeName.slice(PREFIX.length) : storeName,
+        detailNo:     idx.detailNo >= 0 ? toStr(r[idx.detailNo]) : '',
+        detailName:   idx.detailName >= 0 ? toStr(r[idx.detailName]) : '',
+        cornerNo:     idx.cornerNo >= 0 ? toStr(r[idx.cornerNo]) : '',
+        cornerName:   idx.cornerName >= 0 ? toStr(r[idx.cornerName]) : '',
+        contentType:  idx.contentType >= 0 ? toStr(r[idx.contentType]) : '',
+        contentTypeName: idx.contentTypeName >= 0 ? toStr(r[idx.contentTypeName]) : '',
+        contentNo:    idx.contentNo >= 0 ? toStr(r[idx.contentNo]) : '',
+        contentName:  idx.contentName >= 0 ? toStr(r[idx.contentName]) : '',
+        displayOrder: idx.displayOrder >= 0 ? toNum(r[idx.displayOrder]) : 0,
+        clicks:       idx.clicks >= 0 ? toNum(r[idx.clicks]) : 0,
+        impressions:  idx.impressions >= 0 ? toNum(r[idx.impressions]) : 0,
+        ctr:          ctr > 1 ? ctr / 100 : ctr,   // % 값이 이미 소수인 경우 그대로
+        buyerCnt:     idx.buyerCnt >= 0 ? toNum(r[idx.buyerCnt]) : 0,
+        orderCnt:     idx.orderCnt >= 0 ? toNum(r[idx.orderCnt]) : 0,
+        realOrderCnt: idx.realOrderCnt >= 0 ? toNum(r[idx.realOrderCnt]) : 0,
+        realAmt:      idx.realAmt >= 0 ? toNum(r[idx.realAmt]) : 0,
+        discountAmt:  idx.discountAmt >= 0 ? toNum(r[idx.discountAmt]) : 0,
+        totalBenefit: idx.totalBenefit >= 0 ? toNum(r[idx.totalBenefit]) : 0,
+      }
+    })
+    .filter(i => i.media !== '' && i.storeGroup !== '')
+
+  const dates = items.map(i => i.date).filter(Boolean).sort()
+  const period = dates.length ? `${dates[0].slice(5, 10)} ~ ${dates[dates.length-1].slice(5, 10)}` : ''
+  return { sigma: sigmaObj, items, period }
+}
+
 // ─── 개발용: 파싱 결과 구조 확인 ──────────────────────────────────────────────
 if (import.meta.env?.DEV) {
-  console.log('[parseExcel] 파서 로드 완료 — parseCart/Wishlist/Sales/Customer/Visit/Store/SalesByDate/Search')
+  console.log('[parseExcel] 파서 로드 완료 — parseCart/Wishlist/Sales/Customer/Visit/Store/SalesByDate/Search/StoreCorner')
 }

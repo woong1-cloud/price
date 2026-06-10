@@ -1,10 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { parseSheet, parseCart, parseWishlist, parseSales, parseCustomer, parseVisit, parseStore, parseSalesByDate, parseSearch, detectFileKey } from './utils/parseExcel'
+import { parseSheet, parseCart, parseWishlist, parseSales, parseCustomer, parseVisit, parseStore, parseSalesByDate, parseSearch, parseStoreCorner, detectFileKey } from './utils/parseExcel'
 import { computeAllDerived, computeSalesByDateMetrics, computeSearchMetrics } from './utils/metrics'
-import { saveState, loadState, exportJSON, importJSON } from './utils/storage'
+import { saveState, loadState, exportJSON, importJSON, loadCloudState, saveCloudState, subscribeCloud, cloudEnabled } from './utils/storage'
 import L1_HealthCheck from './components/L1_HealthCheck'
 import L2_ProductAnalysis from './components/L2_ProductAnalysis'
 import L3_ActionPanel from './components/L3_ActionPanel'
+import L4_ExhibitionAnalysis from './components/L4_ExhibitionAnalysis'
 import './index.css'
 
 // ─── 파일 정의 ───────────────────────────────────────────────────────────────
@@ -15,10 +16,11 @@ const CORE_FILES = [
   { key: 'customer', label: '고객 분석',     parser: parseCustomer },
 ]
 const EXTRA_FILES = [
-  { key: 'salesByDate', label: '기간별 매출분석', parser: parseSalesByDate },
-  { key: 'search',      label: '검색 실적',       parser: parseSearch },
-  { key: 'visit',       label: '방문실적',        parser: parseVisit },
-  { key: 'store',       label: '매장 종합 실적',  parser: parseStore },
+  { key: 'salesByDate',  label: '기간별 매출분석', parser: parseSalesByDate },
+  { key: 'search',       label: '검색 실적',       parser: parseSearch },
+  { key: 'visit',        label: '방문실적',        parser: parseVisit },
+  { key: 'store',        label: '매장 종합 실적',  parser: parseStore },
+  { key: 'storeCorner',  label: '매장코너 실적',   parser: parseStoreCorner },
 ]
 
 const PARSER_MAP = {
@@ -30,16 +32,18 @@ const PARSER_MAP = {
   search:      parseSearch,
   visit:       parseVisit,
   store:       parseStore,
+  storeCorner: parseStoreCorner,
 }
 const ALL_FILES = [...CORE_FILES, ...EXTRA_FILES]
 
-const EMPTY_WEEK = { cart: null, wishlist: null, sales: null, customer: null, salesByDate: null, search: null, visit: null, store: null }
+const EMPTY_WEEK = { cart: null, wishlist: null, sales: null, customer: null, salesByDate: null, search: null, visit: null, store: null, storeCorner: null }
 
 // ─── 탭 정의 ─────────────────────────────────────────────────────────────────
 const TABS = [
   { id: 'l1', label: 'L1 헬스체크',  icon: '📊', desc: 'KPI · 채널 · 퍼널 · 고객' },
   { id: 'l2', label: 'L2 상품 분석', icon: '🛍', desc: '판매/관심/장바구니 Top · PV갭 · IP · 카테고리' },
-  { id: 'l3', label: 'L3 액션 패널', icon: '🎯', desc: '자동 감지 인사이트 & 액션 카드' },
+  { id: 'l3', label: 'L3 구역별 효율', icon: '🎪', desc: '기획전·카테고리·검색 구역별 노출/클릭/CTR/매출 효율 — MD별 담당 기획전 드릴다운' },
+  { id: 'l4', label: 'L4 액션 패널', icon: '🎯', desc: '분석 기반 자동 감지 인사이트 & 액션 카드' },
 ]
 
 // ─── UploadButton ─────────────────────────────────────────────────────────────
@@ -99,7 +103,7 @@ function TabButton({ tab, active, insightCount, onClick }) {
     }}>
       <span>{tab.icon}</span>
       <span>{tab.label}</span>
-      {tab.id === 'l3' && insightCount > 0 && (
+      {tab.id === 'l4' && insightCount > 0 && (
         <span style={{ background: '#E24B4A', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.6875rem', fontWeight: 700, lineHeight: 1.4 }}>
           {insightCount}
         </span>
@@ -118,12 +122,72 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('l1')
+  const [syncStatus, setSyncStatus] = useState(cloudEnabled ? 'loading' : 'offline') // loading|saving|synced|error|offline
+  const [cloudUpdatedAt, setCloudUpdatedAt] = useState(null)
   const importRef = useRef()
 
-  // localStorage 자동 저장
+  // 클라우드와 비교용 시그니처 (불필요한 재저장/되돌림 루프 방지)
+  const lastSyncedSig = useRef(null)
+  const cloudLoadedRef = useRef(false)
+  const sigOf = (tw, lw) => JSON.stringify([tw, lw])
+
+  // 클라우드 데이터를 로컬 상태에 적용 (적용분은 다시 클라우드로 쓰지 않도록 시그니처 기록)
+  const applyCloud = (tw, lw, updatedAt) => {
+    const nextThis = tw || { ...EMPTY_WEEK }
+    const nextLast = lw || { ...EMPTY_WEEK }
+    lastSyncedSig.current = sigOf(nextThis, nextLast)
+    setThisWeek(nextThis)
+    setLastWeek(nextLast)
+    if (updatedAt) setCloudUpdatedAt(updatedAt)
+  }
+
+  // ① 최초 마운트: 클라우드 공유 데이터 로드
   useEffect(() => {
-    saveState(thisWeek, lastWeek)
+    if (!cloudEnabled) return
+    let cancelled = false
+    setSyncStatus('loading')
+    loadCloudState().then(cloud => {
+      if (cancelled) return
+      if (cloud && (cloud.thisWeek || cloud.lastWeek)) {
+        applyCloud(cloud.thisWeek, cloud.lastWeek, cloud.updatedAt)
+      }
+      cloudLoadedRef.current = true
+      setSyncStatus('synced')
+    }).catch(() => { cloudLoadedRef.current = true; setSyncStatus('error') })
+    return () => { cancelled = true }
+  }, [])
+
+  // ② 실시간: 다른 사용자가 업로드하면 자동 반영
+  useEffect(() => {
+    if (!cloudEnabled) return
+    const unsub = subscribeCloud(row => {
+      applyCloud(row.this_week, row.last_week, row.updated_at)
+      setSyncStatus('synced')
+    })
+    return unsub
+  }, [])
+
+  // ③ 데이터 변경 시: 로컬 항상 저장 + 클라우드 동기화(변경분만)
+  useEffect(() => {
+    saveState(thisWeek, lastWeek) // 로컬은 항상
+    if (!cloudEnabled || !cloudLoadedRef.current) return
+    const sig = sigOf(thisWeek, lastWeek)
+    if (sig === lastSyncedSig.current) return // 클라우드와 동일 → 재저장 불필요
+    setSyncStatus('saving')
+    saveCloudState(thisWeek, lastWeek).then(r => {
+      if (r.ok) { lastSyncedSig.current = sig; setCloudUpdatedAt(new Date().toISOString()) }
+      setSyncStatus(r.ok ? 'synced' : 'error')
+    })
   }, [thisWeek, lastWeek])
+
+  // 수동 새로고침: 최신 공유 데이터 다시 가져오기
+  const handleCloudRefresh = async () => {
+    if (!cloudEnabled) return
+    setSyncStatus('loading')
+    const cloud = await loadCloudState()
+    if (cloud) applyCloud(cloud.thisWeek, cloud.lastWeek, cloud.updatedAt)
+    setSyncStatus('synced')
+  }
 
   const currentWeek = uploadTarget === 'this' ? thisWeek : lastWeek
   const setCurrentWeek = uploadTarget === 'this' ? setThisWeek : setLastWeek
@@ -195,6 +259,7 @@ export default function App() {
 
   const coreLoaded = CORE_FILES.every(f => thisWeek[f.key] !== null)
   const hasLastWeek = CORE_FILES.some(f => lastWeek[f.key] !== null)
+  const hasCornerData = !!thisWeek.storeCorner
 
   const derived = useMemo(() => {
     if (!coreLoaded) return null
@@ -220,6 +285,18 @@ export default function App() {
   const lastPeriod = lastWeek.sales?.period || lastWeek.cart?.period || ''
   const insightCount = derived?.insights?.length ?? 0
 
+  const SYNC_META = {
+    loading: { label: '☁ 동기화 중…', color: '#B45309', bg: '#FFF9F0', border: '#FDE68A' },
+    saving:  { label: '☁ 저장 중…',   color: '#B45309', bg: '#FFF9F0', border: '#FDE68A' },
+    synced:  { label: '☁ 동기화됨',   color: '#1A8060', bg: '#F0FDF8', border: '#5DCAA5' },
+    error:   { label: '⚠ 동기화 오류', color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
+    offline: { label: '○ 로컬 전용',   color: '#A0A09E', bg: '#F8F8F7', border: '#E8E8E6' },
+  }
+  const syncMeta = SYNC_META[syncStatus] || SYNC_META.offline
+  const cloudUpdatedLabel = cloudUpdatedAt
+    ? new Date(cloudUpdatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null
+
   return (
     <div style={{ minHeight: '100vh', background: '#F1F3F5' }}>
       {/* ── 헤더 ── */}
@@ -236,6 +313,16 @@ export default function App() {
                 {thisPeriod && <span>이번주: <strong>{thisPeriod}</strong></span>}
                 {lastPeriod && <span style={{ color: '#A0A09E' }}>지난주: <strong>{lastPeriod}</strong></span>}
                 {derived?.hasWoW && <span style={{ color: '#378ADD', fontWeight: 600 }}>● WoW 활성</span>}
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '1px 8px', borderRadius: 12, fontSize: '0.6875rem', fontWeight: 600,
+                  color: syncMeta.color, background: syncMeta.bg, border: `1px solid ${syncMeta.border}`,
+                }}>
+                  {syncMeta.label}
+                  {cloudUpdatedLabel && syncStatus === 'synced' && (
+                    <span style={{ color: '#A0A09E', fontWeight: 500 }}>· {cloudUpdatedLabel} 갱신</span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -255,6 +342,15 @@ export default function App() {
             {/* 버튼 그룹 */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <BulkUploadButton onFiles={handleBulkFiles} />
+
+              {cloudEnabled && (
+                <button onClick={handleCloudRefresh} title="최신 공유 데이터 다시 불러오기" style={{
+                  padding: '6px 14px', borderRadius: 20, border: '1px solid #BFDBFE', background: '#EFF6FF',
+                  color: '#1D4ED8', fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer',
+                }}>
+                  ☁ 새로고침
+                </button>
+              )}
 
               <button onClick={handleSwapWeeks} style={{
                 padding: '6px 14px', borderRadius: 20, border: '1px solid #E8E8E6', background: '#F8F8F7',
@@ -383,23 +479,27 @@ export default function App() {
       )}
 
       {/* ── 대시보드 ── */}
-      {coreLoaded && derived && (
+      {(coreLoaded || hasCornerData) && (
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '0 24px 40px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', borderBottom: '1px solid #E8E8E6', paddingTop: 16 }}>
-            {TABS.map(tab => (
-              <TabButton key={tab.id} tab={tab} active={activeTab} insightCount={insightCount} onClick={() => setActiveTab(tab.id)} />
-            ))}
+            {TABS
+              .filter(tab => tab.id === 'l3' ? true : coreLoaded)
+              .map(tab => (
+                <TabButton key={tab.id} tab={tab} active={activeTab} insightCount={insightCount} onClick={() => setActiveTab(tab.id)} />
+              ))
+            }
             <div style={{ flex: 1, paddingBottom: 12, paddingRight: 4, textAlign: 'right' }}>
               <span style={{ fontSize: '0.75rem', color: '#A0A09E' }}>{TABS.find(t => t.id === activeTab)?.desc}</span>
             </div>
           </div>
 
           <div style={{ paddingTop: 20 }}>
-            {activeTab === 'l1' && (
+            {activeTab === 'l1' && derived && (
               <L1_HealthCheck derived={derived} salesByDateMetrics={salesByDateMetrics} searchMetrics={searchMetrics} />
             )}
-            {activeTab === 'l2' && <L2_ProductAnalysis derived={derived} />}
-            {activeTab === 'l3' && <L3_ActionPanel derived={derived} />}
+            {activeTab === 'l2' && derived && <L2_ProductAnalysis derived={derived} />}
+            {activeTab === 'l3' && <L4_ExhibitionAnalysis storeCorner={thisWeek.storeCorner} />}
+            {activeTab === 'l4' && derived && <L3_ActionPanel derived={derived} storeCorner={thisWeek.storeCorner} />}
           </div>
         </div>
       )}

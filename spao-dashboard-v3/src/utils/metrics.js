@@ -269,8 +269,8 @@ export function calcStoreMetrics(store) {
     .slice(0, 15)
 
   // B-3: 탐색 vs 구매 전환
-  const EXPLORE_GROUPS  = new Set(['홈매장', '상품상세매장', '공통매장'])
-  const PURCHASE_GROUPS = new Set(['검색매장', '카테고리매장', '기획전매장', '유닛매장'])
+  const EXPLORE_GROUPS  = new Set(['홈매장', '공통매장'])
+  const PURCHASE_GROUPS = new Set(['검색매장', '카테고리매장', '기획전매장', '유닛매장', '상품상세매장'])
   const exploreArea  = { uv: 0, realAmt: 0 }
   const purchaseArea = { uv: 0, realAmt: 0 }
   for (const i of items) {
@@ -561,19 +561,28 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
   })()
 
   // ── 카테고리별 찜→담기→판매 퍼널 ──
+  // name으로 카테고리 못 잡으면 styleCode itemName으로 fallback
+  function getCatSmart(name, styleCode) {
+    const cat = getCategory(name)
+    if (cat !== '기타') return cat
+    const itemName = parseStyleCode(styleCode).itemName
+    if (itemName && itemName !== '기타') return getCategory(itemName)
+    return '기타'
+  }
+
   const catFunnelMap = {}
   for (const i of salesSplit.thisWeek) {
-    const cat = getCategory(i.name)
+    const cat = getCatSmart(i.name, i.styleCode)
     if (!catFunnelMap[cat]) catFunnelMap[cat] = { realAmt: 0, wishCnt: 0, cartCnt: 0 }
     catFunnelMap[cat].realAmt += i.realAmt
   }
   for (const i of wishSplit.thisWeek) {
-    const cat = getCategory(i.name)
+    const cat = getCatSmart(i.name, i.styleCode)
     if (!catFunnelMap[cat]) catFunnelMap[cat] = { realAmt: 0, wishCnt: 0, cartCnt: 0 }
     catFunnelMap[cat].wishCnt += i.wishCnt
   }
   for (const i of cartSplit.thisWeek) {
-    const cat = getCategory(i.name)
+    const cat = getCatSmart(i.name, i.styleCode)
     if (!catFunnelMap[cat]) catFunnelMap[cat] = { realAmt: 0, wishCnt: 0, cartCnt: 0 }
     catFunnelMap[cat].cartCnt += i.cartCnt
   }
@@ -858,4 +867,99 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     insights,
     itemGenderMatrix,
   }
+}
+
+// ─── 구역별 효율 인사이트 (storeCorner 데이터 기반) ──────────────────────────
+export function computeStoreCornerInsights(storeCorner) {
+  if (!storeCorner?.items?.length) return []
+  const insights = []
+  const items = storeCorner.items
+
+  // ── 기획전 집계 ──
+  const exhibItems = items.filter(i => i.storeGroup === '기획전매장')
+  const exhibMap = {}
+  for (const i of exhibItems) {
+    const k = i.detailName || '(미분류)'
+    if (!exhibMap[k]) exhibMap[k] = { name: k, imp: 0, clk: 0, buyer: 0, realAmt: 0 }
+    exhibMap[k].imp    += i.impressions
+    exhibMap[k].clk    += i.clicks
+    exhibMap[k].buyer  += i.buyerCnt
+    exhibMap[k].realAmt+= i.realAmt
+  }
+  const exhibRows = Object.values(exhibMap)
+    .map(r => ({ ...r, ctr: r.imp > 0 ? r.clk / r.imp : 0, cvr: r.clk > 0 ? r.buyer / r.clk : 0 }))
+    .sort((a, b) => b.realAmt - a.realAmt)
+
+  const exhibTotalAmt = exhibRows.reduce((s, r) => s + r.realAmt, 0)
+  const exhibTotalImp = exhibRows.reduce((s, r) => s + r.imp, 0)
+  const exhibTotalClk = exhibRows.reduce((s, r) => s + r.clk, 0)
+  const exhibAvgCTR   = exhibTotalImp > 0 ? exhibTotalClk / exhibTotalImp : 0
+
+  // ── 카테고리 집계 ──
+  const catItems = items.filter(i => i.storeGroup === '카테고리매장')
+  const catImp   = catItems.reduce((s, i) => s + i.impressions, 0)
+  const catClk   = catItems.reduce((s, i) => s + i.clicks, 0)
+  const catCTR   = catImp > 0 ? catClk / catImp : 0
+
+  const fmt  = v => (v * 100).toFixed(2) + '%'
+  const fmtN = v => v.toLocaleString()
+
+  // ── 인사이트 생성 ──
+
+  // 1) 노출 많은데 CTR 낮은 기획전 (평균의 50% 미만)
+  const lowCtrRows = exhibRows.filter(r => r.imp >= 50000 && exhibAvgCTR > 0 && r.ctr < exhibAvgCTR * 0.5)
+  if (lowCtrRows.length > 0) {
+    const top = lowCtrRows[0]
+    insights.push({
+      id: 'low_ctr_exhibit', severity: 'warning',
+      title: '노출 대비 클릭 미흡 기획전',
+      desc: `「${top.name}」 노출 ${fmtN(top.imp)}회 — CTR ${fmt(top.ctr)} (기획전 평균 ${fmt(exhibAvgCTR)}의 절반 이하)`,
+      action: '배너 이미지·카피 교체 또는 기획전 노출 위치(코너 순서)를 재배치하세요.',
+    })
+  }
+
+  // 2) 기획전 매출 편중 — 1위 기획전이 전체의 50% 이상
+  if (exhibRows.length > 1 && exhibTotalAmt > 0 && exhibRows[0].realAmt / exhibTotalAmt > 0.5) {
+    const share = exhibRows[0].realAmt / exhibTotalAmt
+    insights.push({
+      id: 'exhibit_concentration', severity: 'info',
+      title: '기획전 매출 편중',
+      desc: `「${exhibRows[0].name}」 단일 기획전이 전체 기획전 매출의 ${(share * 100).toFixed(1)}% 차지`,
+      action: '하위 기획전에 추가 노출·프로모션 자원을 배분하거나 신규 기획전을 강화하세요.',
+    })
+  }
+
+  // 3) 클릭은 있으나 구매 전환 0인 기획전
+  const zeroConvRows = exhibRows.filter(r => r.clk >= 100 && r.buyer === 0)
+  if (zeroConvRows.length > 0) {
+    insights.push({
+      id: 'zero_conv_exhibit', severity: 'warning',
+      title: '클릭 있으나 구매 전환 없는 기획전',
+      desc: `${zeroConvRows.slice(0, 3).map(r => `「${r.name}」`).join(', ')} — 클릭 유입은 있으나 주문 0`,
+      action: '기획전 내 상품 가격·재고 여부를 확인하고 구매 유인 요소(쿠폰·혜택)를 추가하세요.',
+    })
+  }
+
+  // 4) 고효율 기획전 감지 — CTR 3% 이상 (긍정)
+  const topCtrRow = exhibRows.filter(r => r.imp >= 10000).sort((a, b) => b.ctr - a.ctr)[0]
+  if (topCtrRow && topCtrRow.ctr > 0.03) {
+    insights.push({
+      id: 'top_ctr_exhibit', severity: 'success',
+      title: '고효율 기획전 감지',
+      desc: `「${topCtrRow.name}」 CTR ${fmt(topCtrRow.ctr)} — 노출 ${fmtN(topCtrRow.imp)}회 기준 전환 우수`,
+      action: '해당 기획전의 배너 형태·상품 구성·코너 배치를 타 기획전 운영에 참고하세요.',
+    })
+  }
+
+  // 5) 카테고리 CTR이 기획전보다 1.5배 이상 높음
+  if (catCTR > 0 && exhibAvgCTR > 0 && catCTR > exhibAvgCTR * 1.5) {
+    insights.push({
+      id: 'cat_ctr_dominates', severity: 'info',
+      title: '카테고리 구역 CTR 우위',
+      desc: `카테고리 CTR ${fmt(catCTR)} vs 기획전 CTR ${fmt(exhibAvgCTR)} — 카테고리 탐색이 더 활발`,
+      action: '인기 카테고리와 연계한 기획전을 설계하거나 카테고리 내 기획전 배너를 추가하세요.',
+    })
+  }
+
+  return insights
 }

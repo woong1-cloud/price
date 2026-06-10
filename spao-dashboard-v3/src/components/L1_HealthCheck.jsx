@@ -452,7 +452,7 @@ function StoreSection({ storeMetrics }) {
           {/* 탐색 영역 */}
           <div style={{ flex: 1, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '14px 16px' }}>
             <div style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#DC2626', marginBottom: 2 }}>🏠 탐색 영역</div>
-            <div style={{ fontSize: '0.625rem', color: '#9CA3AF', marginBottom: 10 }}>홈 · 상품상세 · 공통</div>
+            <div style={{ fontSize: '0.625rem', color: '#9CA3AF', marginBottom: 10 }}>홈 · 공통</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <div>
                 <div style={{ fontSize: '0.625rem', color: '#A0A09E' }}>UV 합계</div>
