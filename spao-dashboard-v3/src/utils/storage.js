@@ -70,12 +70,34 @@ export function subscribeCloud(onChange) {
   }
 }
 
+// 로컬 캐시 저장.
+// 전체 주간 데이터(코너 집계 포함)는 localStorage 한도(~5MB)를 넘을 수 있다.
+// 클라우드가 공유 데이터의 원천이므로 localStorage 는 "있으면 좋은" 즉시 로드 캐시일 뿐이다.
+// 한도 초과 시: 용량이 가장 큰 storeCorner 를 뺀 경량본으로 재시도하고,
+// 그래도 실패하면 키를 비워 손상된/오래된 상태가 남지 않게 한다.
+function setWeekKeys(thisWeek, lastWeek) {
+  localStorage.setItem(KEY_THIS, JSON.stringify(thisWeek))
+  localStorage.setItem(KEY_LAST, JSON.stringify(lastWeek))
+}
+
+const stripHeavy = (week) => {
+  if (!week || typeof week !== 'object') return week
+  // storeCorner 는 코너 단위로 집계했어도 수천 행이라 로컬 캐시에서 제외(클라우드에서 복원).
+  const { storeCorner, ...rest } = week
+  return storeCorner ? { ...rest, storeCorner: null } : week
+}
+
 export function saveState(thisWeek, lastWeek) {
   try {
-    localStorage.setItem(KEY_THIS, JSON.stringify(thisWeek))
-    localStorage.setItem(KEY_LAST, JSON.stringify(lastWeek))
-  } catch (e) {
-    console.warn('localStorage 저장 실패:', e)
+    setWeekKeys(thisWeek, lastWeek)
+  } catch {
+    // 1차 실패(주로 QuotaExceeded) → storeCorner 제외하고 경량 재시도
+    try {
+      setWeekKeys(stripHeavy(thisWeek), stripHeavy(lastWeek))
+    } catch {
+      // 그래도 실패 → 손상 방지를 위해 로컬 캐시 비우기 (클라우드가 원천)
+      try { localStorage.removeItem(KEY_THIS); localStorage.removeItem(KEY_LAST) } catch { /* noop */ }
+    }
   }
 }
 

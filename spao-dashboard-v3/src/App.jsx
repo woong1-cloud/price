@@ -158,11 +158,18 @@ export default function App() {
   }, [])
 
   // ② 실시간: 다른 사용자가 업로드하면 자동 반영
+  // 주의: Supabase Realtime 은 브로드캐스트 페이로드 크기 상한(약 1MB)이 있어
+  // 큰 this_week(jsonb)가 잘려 null 로 도착할 수 있다. payload.new 를 그대로 적용하면
+  // 정상 데이터를 빈 값으로 덮어쓸 위험이 있으므로, 실시간 이벤트는 "알림"으로만 쓰고
+  // 전체 행을 다시 가져와서(loadCloudState) 적용한다.
   useEffect(() => {
     if (!cloudEnabled) return
-    const unsub = subscribeCloud(row => {
-      applyCloud(row.this_week, row.last_week, row.updated_at)
-      setSyncStatus('synced')
+    const unsub = subscribeCloud(async () => {
+      const cloud = await loadCloudState()
+      if (cloud && (cloud.thisWeek || cloud.lastWeek)) {
+        applyCloud(cloud.thisWeek, cloud.lastWeek, cloud.updatedAt)
+        setSyncStatus('synced')
+      }
     })
     return unsub
   }, [])

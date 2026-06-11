@@ -580,7 +580,39 @@ export function parseStoreCorner(rows) {
 
   const dates = items.map(i => i.date).filter(Boolean).sort()
   const period = dates.length ? `${dates[0].slice(5, 10)} ~ ${dates[dates.length-1].slice(5, 10)}` : ''
-  return { sigma: sigmaObj, items, period }
+
+  // ── 코너 단위 사전 집계 ──────────────────────────────────────────────────────
+  // 원본은 (날짜 × 컨텐츠) 단위라 행이 수십만 개 → 직렬화 시 localStorage/클라우드
+  // 용량 초과(QuotaExceeded / Failed to fetch). 대시보드는 항상 합산해서만 쓰므로
+  // (매체 × 매장그룹 × 매장상세명 × 코너명) 단위로 미리 합산해 행 수를 줄인다.
+  // 합의 합 = 원본 합 이므로 화면 수치는 동일하다.
+  const aggMap = new Map()
+  for (const i of items) {
+    const key = `${i.media}${i.storeGroup}${i.detailName}${i.cornerName}`
+    let r = aggMap.get(key)
+    if (!r) {
+      r = {
+        media:       i.media,
+        storeGroup:  i.storeGroup,
+        detailName:  i.detailName,
+        cornerName:  i.cornerName,
+        impressions: 0,
+        clicks:      0,
+        buyerCnt:    0,
+        orderCnt:    0,
+        realAmt:     0,
+      }
+      aggMap.set(key, r)
+    }
+    r.impressions += i.impressions
+    r.clicks      += i.clicks
+    r.buyerCnt    += i.buyerCnt
+    r.orderCnt    += i.orderCnt
+    r.realAmt     += i.realAmt
+  }
+  const aggItems = Array.from(aggMap.values())
+
+  return { sigma: sigmaObj, items: aggItems, period }
 }
 
 // ─── 개발용: 파싱 결과 구조 확인 ──────────────────────────────────────────────

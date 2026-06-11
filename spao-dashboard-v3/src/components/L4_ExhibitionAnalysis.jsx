@@ -202,6 +202,9 @@ function DrilldownPanel({ title, items }) {
   const maxCornerAmt = Math.max(...cornerRows.map(r => r.realAmt), 1)
   const maxContentAmt = Math.max(...contentRows.map(r => r.realAmt), 1)
 
+  // 코너 단위 사전 집계 데이터는 상품(컨텐츠) 식별자가 없다 → 상품별 표는 숨긴다.
+  const hasContentDetail = items.some(i => i.contentNo)
+
   return (
     <div style={{ background: '#F0F6FF', border: '1.5px solid #BFDBFE', borderTop: 'none', borderRadius: '0 0 14px 14px', padding: '20px 24px', marginBottom: 16 }}>
       {/* 항목 수 표시 */}
@@ -239,8 +242,8 @@ function DrilldownPanel({ title, items }) {
         </div>
       </div>
 
-      {/* 코너별 + 상품별 2열 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      {/* 코너별 + 상품별 2열 (상품 식별자 없으면 코너별만 전체폭) */}
+      <div style={{ display: 'grid', gridTemplateColumns: hasContentDetail ? '1fr 1fr' : '1fr', gap: 16 }}>
         {/* 코너별 효율 */}
         <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px' }}>
           <SectionTitle>📍 코너별 효율 (매출 순)</SectionTitle>
@@ -269,7 +272,8 @@ function DrilldownPanel({ title, items }) {
           </table>
         </div>
 
-        {/* 상품별 기여도 */}
+        {/* 상품별 기여도 (코너 단위 집계 데이터에는 상품 정보가 없어 숨김) */}
+        {hasContentDetail && (
         <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px' }}>
           <SectionTitle>🛍 상품별 기여도 TOP 30</SectionTitle>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
@@ -297,6 +301,7 @@ function DrilldownPanel({ title, items }) {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   )
