@@ -214,14 +214,17 @@ export default function App() {
   }
 
   // 선택 주 + 비교 기준을 thisWeek/lastWeek 에 적용 (주차 스냅샷 = 화면 원천)
-  const applySelectedWeek = async (weekKey, compareKey) => {
+  const applySelectedWeek = async (weekKey, compareKey, indexOverride) => {
     setError(null)
     if (!weekKey) {
       setThisWeek({ ...EMPTY_WEEK }); setLastWeek({ ...EMPTY_WEEK }); setSelectedWeekKey(null); return
     }
     const payload = await getPayload(weekKey)
     if (!payload) { setError('스냅샷을 불러오지 못했습니다.'); return }
-    const prevKey = compareKey || previousWeekKey(snapshotIndex, weekKey)
+    // 직후 호출(로드/업로드/삭제) 시 setState 반영 전이라 snapshotIndex 상태가 낡았을 수 있어
+    // 갓 받아온 인덱스를 명시적으로 넘겨 자동 비교(직전 주) 계산이 빈 인덱스로 빗나가지 않게 한다.
+    const idx = indexOverride || snapshotIndex
+    const prevKey = compareKey || previousWeekKey(idx, weekKey)
     const prevPayload = prevKey ? await getPayload(prevKey) : null
     const nextLast = prevPayload || { ...EMPTY_WEEK }
     viewingSnapshotRef.current = true          // 라이브(dashboard_state) 저장 효과 차단
@@ -245,7 +248,7 @@ export default function App() {
       if (didInitWeekRef.current) return
       didInitWeekRef.current = true
       const recent = mostRecentWeekKey(idx)
-      if (recent) applySelectedWeek(recent, null)
+      if (recent) applySelectedWeek(recent, null, idx)
     })
     const unsub = subscribeSnapshots(() => refreshIndex())
     return unsub
@@ -316,8 +319,7 @@ export default function App() {
       })
       const idx = await refreshIndex()
       setCompareWeekKey(null)
-      await applySelectedWeek(dk.weekKey, null)
-      void idx
+      await applySelectedWeek(dk.weekKey, null, idx)
     } else {
       // 기간 인식 실패 → 버퍼에 담고 모달로 주차 지정
       setThisWeek(merged)
@@ -639,9 +641,9 @@ export default function App() {
           filesPresent={pendingNewWeek?.filesPresent ?? ALL_FILES.filter(f => thisWeek[f.key]).map(f => f.key)}
           onClose={() => { setShowSnapshotModal(false); setPendingNewWeek(null) }}
           onSaved={async (savedKey) => {
-            await refreshIndex()
+            const idx = await refreshIndex()
             setCompareWeekKey(null)
-            await applySelectedWeek(savedKey, null)
+            await applySelectedWeek(savedKey, null, idx)
           }}
         />
       )}
@@ -653,10 +655,16 @@ export default function App() {
           onChanged={async () => {
             payloadCacheRef.current.clear()
             const idx = await refreshIndex()
-            // 보던 주가 삭제됐으면 가장 최근 주로 폴백
             if (!selectedWeekKey || !idx.find(r => r.week_key === selectedWeekKey)) {
+              // 보던 주가 삭제됐으면 가장 최근 주로 폴백
               setCompareWeekKey(null)
-              await applySelectedWeek(mostRecentWeekKey(idx), null)
+              await applySelectedWeek(mostRecentWeekKey(idx), null, idx)
+            } else {
+              // 보던 주는 유지하되, 비교 기준 주가 삭제됐을 수 있으니 재계산.
+              // 수동 비교 주가 사라졌으면 자동(직전 주)로 폴백한다.
+              const keepCompare = compareWeekKey && idx.find(r => r.week_key === compareWeekKey)
+              if (!keepCompare) setCompareWeekKey(null)
+              await applySelectedWeek(selectedWeekKey, keepCompare ? compareWeekKey : null, idx)
             }
           }}
         />
