@@ -44,3 +44,58 @@ begin
 exception
   when duplicate_object then null;
 end $$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 주차별 스냅샷 누적 (weekly_snapshots) — Phase 1
+-- 주마다 한 행. week_key(UNIQUE) 기준 upsert 로 같은 주는 덮어쓴다.
+-- payload 는 한 주치 week 객체(현재 dashboard_state.this_week 와 동일 형태).
+-- ════════════════════════════════════════════════════════════════════════
+create table if not exists public.weekly_snapshots (
+  week_key      text primary key,            -- "2026-W23"
+  week_label    text not null,               -- "6월 1주"
+  week_start    date,                         -- 2026-06-01
+  week_end      date,                         -- 2026-06-07
+  payload       jsonb not null,               -- 한 주치 week 객체
+  files_present text[] not null default '{}', -- ['sales','cart',...]
+  uploaded_at   timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  updated_by    text
+);
+
+create index if not exists weekly_snapshots_start_idx
+  on public.weekly_snapshots (week_start);
+
+-- ── RLS: dashboard_state 와 동일 수위 (사내 도구 수준) ─────────────────────
+alter table public.weekly_snapshots enable row level security;
+
+drop policy if exists "anon read snapshots"   on public.weekly_snapshots;
+drop policy if exists "anon insert snapshots" on public.weekly_snapshots;
+drop policy if exists "anon update snapshots" on public.weekly_snapshots;
+drop policy if exists "anon delete snapshots" on public.weekly_snapshots;
+
+create policy "anon read snapshots"   on public.weekly_snapshots
+  for select to anon using (true);
+
+create policy "anon insert snapshots" on public.weekly_snapshots
+  for insert to anon with check (true);
+
+create policy "anon update snapshots" on public.weekly_snapshots
+  for update to anon using (true) with check (true);
+
+create policy "anon delete snapshots" on public.weekly_snapshots
+  for delete to anon using (true);
+
+-- ── 인덱스 전용 뷰 (payload 제외) — lazy loading 용 ────────────────────────
+create or replace view public.weekly_snapshots_index as
+  select week_key, week_label, week_start, week_end,
+         files_present, uploaded_at, updated_at, updated_by
+  from public.weekly_snapshots
+  order by week_start desc nulls last, week_key desc;
+
+-- ── 실시간: 주 추가/수정 감지 (인덱스 갱신용) ──────────────────────────────
+do $$
+begin
+  alter publication supabase_realtime add table public.weekly_snapshots;
+exception
+  when duplicate_object then null;
+end $$;

@@ -70,6 +70,121 @@ export function subscribeCloud(onChange) {
   }
 }
 
+// ─── 주차별 스냅샷 (weekly_snapshots) — Phase 1 ─────────────────────────────
+// 인덱스(payload 제외)만 조회 — 시작 시 가볍게 목록 로드
+export async function loadSnapshotIndex() {
+  if (!supabase) return []
+  try {
+    const { data, error } = await supabase
+      .from('weekly_snapshots')
+      .select('week_key,week_label,week_start,week_end,files_present,uploaded_at,updated_at,updated_by')
+      .order('week_start', { ascending: false, nullsFirst: false })
+      .order('week_key', { ascending: false })
+    if (error) { console.warn('스냅샷 인덱스 로드 실패:', error.message); return [] }
+    return data || []
+  } catch (e) {
+    console.warn('스냅샷 인덱스 로드 예외:', e)
+    return []
+  }
+}
+
+// 단일 주 payload 조회 — 주 클릭 시
+export async function loadSnapshotPayload(weekKey) {
+  if (!supabase || !weekKey) return null
+  try {
+    const { data, error } = await supabase
+      .from('weekly_snapshots')
+      .select('payload')
+      .eq('week_key', weekKey)
+      .maybeSingle()
+    if (error) { console.warn('스냅샷 payload 로드 실패:', error.message); return null }
+    return data?.payload || null
+  } catch (e) {
+    console.warn('스냅샷 payload 로드 예외:', e)
+    return null
+  }
+}
+
+// 주차 저장/덮어쓰기 — week_key 기준 upsert
+export async function upsertSnapshot({ weekKey, weekLabel, weekStart, weekEnd, payload, filesPresent = [], updatedBy = null }) {
+  if (!supabase) return { ok: false, reason: 'no-client' }
+  if (!weekKey) return { ok: false, reason: 'no-week-key' }
+  try {
+    const now = new Date().toISOString()
+    const row = {
+      week_key: weekKey,
+      week_label: weekLabel || weekKey,
+      week_start: weekStart || null,
+      week_end: weekEnd || null,
+      payload,
+      files_present: filesPresent,
+      updated_at: now,
+      updated_by: updatedBy,
+    }
+    const { error } = await supabase
+      .from('weekly_snapshots')
+      .upsert(row, { onConflict: 'week_key' })
+    if (error) { console.warn('스냅샷 저장 실패:', error.message); return { ok: false, reason: error.message } }
+    return { ok: true }
+  } catch (e) {
+    console.warn('스냅샷 저장 예외:', e)
+    return { ok: false, reason: e.message }
+  }
+}
+
+// 주차 삭제 (Phase 4 관리)
+export async function deleteSnapshot(weekKey) {
+  if (!supabase || !weekKey) return { ok: false, reason: 'no-client-or-key' }
+  try {
+    const { error } = await supabase
+      .from('weekly_snapshots')
+      .delete()
+      .eq('week_key', weekKey)
+    if (error) { console.warn('스냅샷 삭제 실패:', error.message); return { ok: false, reason: error.message } }
+    return { ok: true }
+  } catch (e) {
+    console.warn('스냅샷 삭제 예외:', e)
+    return { ok: false, reason: e.message }
+  }
+}
+
+// 주차 메타(라벨 등) 수정 — payload 는 건드리지 않음 (Phase 4 관리)
+export async function updateSnapshotMeta(weekKey, { weekLabel, weekStart, weekEnd, updatedBy = null } = {}) {
+  if (!supabase || !weekKey) return { ok: false, reason: 'no-client-or-key' }
+  try {
+    const patch = { updated_at: new Date().toISOString(), updated_by: updatedBy }
+    if (weekLabel !== undefined) patch.week_label = weekLabel
+    if (weekStart !== undefined) patch.week_start = weekStart || null
+    if (weekEnd !== undefined) patch.week_end = weekEnd || null
+    const { error } = await supabase
+      .from('weekly_snapshots')
+      .update(patch)
+      .eq('week_key', weekKey)
+    if (error) { console.warn('스냅샷 메타 수정 실패:', error.message); return { ok: false, reason: error.message } }
+    return { ok: true }
+  } catch (e) {
+    console.warn('스냅샷 메타 수정 예외:', e)
+    return { ok: false, reason: e.message }
+  }
+}
+
+// 스냅샷 추가/수정 실시간 구독 (인덱스 갱신용 알림)
+export function subscribeSnapshots(onChange) {
+  if (!supabase) return () => {}
+  try {
+    const ch = supabase
+      .channel('weekly_snapshots_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'weekly_snapshots' },
+        (payload) => onChange?.(payload))
+      .subscribe()
+    return () => { try { supabase.removeChannel(ch) } catch { /* noop */ } }
+  } catch (e) {
+    console.warn('스냅샷 구독 실패:', e)
+    return () => {}
+  }
+}
+
 // 로컬 캐시 저장.
 // 전체 주간 데이터(코너 집계 포함)는 localStorage 한도(~5MB)를 넘을 수 있다.
 // 클라우드가 공유 데이터의 원천이므로 localStorage 는 "있으면 좋은" 즉시 로드 캐시일 뿐이다.
