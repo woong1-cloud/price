@@ -127,10 +127,27 @@ export default function App() {
     if (!cloudEnabled) return
     let cancelled = false
     setSyncStatus('loading')
-    loadCloudState().then(cloud => {
+    loadCloudState().then(async cloud => {
       if (cancelled) return
       if (cloud && (cloud.thisWeek || cloud.lastWeek)) {
         applyCloud(cloud.thisWeek, cloud.lastWeek, cloud.updatedAt)
+        // 마이그레이션: 레거시 dashboard_state.last_week 를 스냅샷에 1회 흡수(멱등)
+        const lw = cloud.lastWeek
+        if (lw) {
+          const period = lw.salesByDate?.period || lw.sales?.period || lw.cart?.period || ''
+          const dk = deriveWeekKey(period)
+          if (dk.ok) {
+            const cur = await loadSnapshotIndex()
+            if (!cur.find(r => r.week_key === dk.weekKey)) {
+              const fp = ALL_FILES.filter(f => lw[f.key]).map(f => f.key)
+              await upsertSnapshot({
+                weekKey: dk.weekKey, weekLabel: dk.weekLabel,
+                weekStart: dk.weekStart, weekEnd: dk.weekEnd,
+                payload: lw, filesPresent: fp,
+              })
+            }
+          }
+        }
       }
       cloudLoadedRef.current = true
       setSyncStatus('synced')
