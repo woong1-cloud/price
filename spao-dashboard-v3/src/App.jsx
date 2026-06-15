@@ -413,8 +413,12 @@ export default function App() {
     offline: { label: '○ 로컬 전용',   color: '#A0A09E', bg: '#F8F8F7', border: '#E8E8E6' },
   }
   const syncMeta = SYNC_META[syncStatus] || SYNC_META.offline
-  const cloudUpdatedLabel = cloudUpdatedAt
-    ? new Date(cloudUpdatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  // 주차 중심 모델에선 데이터가 weekly_snapshots 에 저장되므로, 선택된 주 스냅샷의 updated_at 을
+  // 우선 사용한다. (dashboard_state.updated_at 은 구 모델 잔재라 갱신되지 않아 시점이 멈춰 보임)
+  const selectedSnapshotUpdatedAt = snapshotIndex.find((r) => r.week_key === selectedWeekKey)?.updated_at
+  const effectiveUpdatedAt = selectedSnapshotUpdatedAt || cloudUpdatedAt
+  const cloudUpdatedLabel = effectiveUpdatedAt
+    ? new Date(effectiveUpdatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
     : null
 
   return (
