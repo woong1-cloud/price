@@ -4,6 +4,7 @@ import {
   LineChart, Line, ReferenceLine,
 } from 'recharts'
 import KPICard from './common/KPICard'
+import WoWBadge from './common/WoWBadge'
 import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
 import SalesScoreboard from './SalesScoreboard'
 import SearchSection from './SearchSection'
@@ -109,6 +110,7 @@ function ChannelDonut({ channelData }) {
                 <div style={{ height: '100%', width: `${total > 0 ? d.value / total * 100 : 0}%`, background: CHANNEL_COLORS[i % CHANNEL_COLORS.length], borderRadius: 3 }} />
               </div>
               <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1A1A1A', width: 48, textAlign: 'right' }}>{fmt억(d.value)}</span>
+              <span style={{ width: 56, textAlign: 'right', flexShrink: 0 }}><WoWBadge wow={d.wow} size="xs" /></span>
             </div>
           ))}
         </div>
@@ -192,11 +194,13 @@ function NewVsReturn({ newVsReturn }) {
   }
   const { newCustCnt, returnCustCnt, newAmt, returnAmt, newPct, returnPct, newAmtPct, returnAmtPct, raw } = newVsReturn
   const totalCust = newCustCnt + returnCustCnt
+  // 첫구매회원 방식(방법B)은 고객수만 제공하고 금액 분할이 없어 금액 비율이 0이 된다 → 금액 칸은 숨긴다.
+  const hasAmtSplit = (newAmt + returnAmt) > 0
 
   return (
     <div>
       {/* 파이 + 바 형태 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: hasAmtSplit ? '1fr 1fr' : '1fr', gap: 12 }}>
         {/* 구매 고객수 */}
         <div style={{ background: '#F8F8F7', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginBottom: 8 }}>구매 고객수 비율</div>
@@ -217,7 +221,8 @@ function NewVsReturn({ newVsReturn }) {
             </div>
           ))}
         </div>
-        {/* 실주문금액 */}
+        {/* 실주문금액 — 금액 분할이 있는 경우(회원구분 방식)만 표시 */}
+        {hasAmtSplit && (
         <div style={{ background: '#F8F8F7', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginBottom: 8 }}>실주문금액 비율</div>
           {[
@@ -237,7 +242,13 @@ function NewVsReturn({ newVsReturn }) {
             </div>
           ))}
         </div>
+        )}
       </div>
+      {!hasAmtSplit && (
+        <div style={{ marginTop: 6, fontSize: '0.6875rem', color: '#A0A09E' }}>
+          ※ 고객 분석 파일이 <strong>첫구매회원(고객수)</strong>만 제공해 신규/재구매 <strong>금액</strong> 분할은 표시하지 않습니다.
+        </div>
+      )}
       {/* 원시 레이블 전체 (회원구분 컬럼 그대로) */}
       {raw.length > 2 && (
         <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -263,6 +274,10 @@ function CustomerSegment({ genderData, femaleAge, maleAge, newVsReturn }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <SectionHeader icon="👥" title="고객 세그먼트" color="#7F77DD" />
         <PerspectiveBadge label="사용자" />
+      </div>
+
+      <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginBottom: 12, lineHeight: 1.5 }}>
+        ※ 성별·연령 금액은 <strong>고객 분석 파일</strong> 기준(집계 범위가 달라 매출 합계와 일치하지 않을 수 있음)이며, 절대액보다 <strong>구성 비율</strong>로 보세요.
       </div>
 
       {/* 신규 vs 재구매 */}
@@ -293,6 +308,7 @@ function CustomerSegment({ genderData, femaleAge, maleAge, newVsReturn }) {
                 <span style={{ fontSize: '0.75rem', color: '#6B6B68', flex: 1 }}>{d.name}</span>
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1A1A1A' }}>{d.pct.toFixed(0)}%</span>
                 <span style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>{fmt억(d.value)}</span>
+                <WoWBadge wow={d.wow} size="xs" />
               </div>
             ))}
           </div>
@@ -371,21 +387,26 @@ function VisitSection({ visitMetrics }) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {[
-                  { l: 'UV',      v: fmtComma(kpi.uv) + '명' },
+                  { l: 'UV',      v: fmtComma(kpi.uv) + '명', wow: kpi.uvWoW },
                   { l: '세션',    v: fmtComma(kpi.session) + '건' },
                   { l: 'PV',      v: fmtComma(kpi.pv) },
                   { l: '세션당PV', v: kpi.sessionPV.toFixed(1) },
-                ].map(({ l, v }) => (
+                ].map(({ l, v, wow }) => (
                   <div key={l}>
                     <div style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>{l}</div>
-                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{v}</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {v}{wow !== undefined && <WoWBadge wow={wow} size="xs" />}
+                    </div>
                   </div>
                 ))}
               </div>
               <div style={{ paddingTop: 8, borderTop: '1px solid #E8E8E6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>이탈률</span>
-                <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: isHighBounce ? '#DC2626' : '#1A8060' }}>
-                  {isHighBounce ? '⚠ ' : '✓ '}{fmtPct(kpi.avgBounceRate)}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: isHighBounce ? '#DC2626' : '#1A8060' }}>
+                    {isHighBounce ? '⚠ ' : '✓ '}{fmtPct(kpi.avgBounceRate)}
+                  </span>
+                  <WoWBadge wow={kpi.bounceWoW} kind="pp" invert size="xs" />
                 </span>
               </div>
             </div>
@@ -558,7 +579,7 @@ function StoreSection({ storeMetrics }) {
 }
 
 // ─── 헬스체크 상단 요약 (개편) ───────────────────────────────────────────────
-function QuickSummary({ derived }) {
+function QuickSummary({ derived, salesByDateMetrics }) {
   const { kpis, cartDerived, catData, ipData, visitMetrics, storeMetrics, newVsCarry, channelData, newVsReturn } = derived
 
   const totalRev   = kpis?.[0]?.rawValue || 0
@@ -566,10 +587,12 @@ function QuickSummary({ derived }) {
   const ipPct      = totalRev > 0 ? (ipTotal / totalRev * 100).toFixed(0) : 0
   const topIP      = ipData?.[0]
   const newPct     = newVsCarry?.[0]?.pct?.toFixed(0) || 0
-  const cancelRate = cartDerived?.cancelRate || 0
-  const aov        = cartDerived?.aov || 0
-  const discRate   = cartDerived?.discountRate || 0
-  const benefitAmt = cartDerived?.benefitAmt || 0
+  // 매출 성과 지표는 '기간별 매출분석' 파일이 원천이다(취소율/AOV/할인율/혜택금액 보유).
+  // 해당 파일이 없을 때만 cartDerived 로 폴백.
+  const cancelRate = salesByDateMetrics?.cancelRate ?? cartDerived?.cancelRate ?? 0
+  const aov        = salesByDateMetrics?.aov ?? cartDerived?.aov ?? 0
+  const discRate   = salesByDateMetrics?.discountRate ?? cartDerived?.discountRate ?? 0
+  const benefitAmt = salesByDateMetrics?.sigma?.totalBenefit ?? cartDerived?.benefitAmt ?? 0
   const cartConv   = cartDerived?.cartConvRate || 0
   const nonMemPct  = cartDerived?.nonMemberPct || 0
   const newCustPct = newVsReturn?.newPct || 0
@@ -685,7 +708,7 @@ export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetr
       <KPIRow kpis={kpis} />
 
       {/* ── 관점별 빠른 요약 ── */}
-      <QuickSummary derived={derived} />
+      <QuickSummary derived={derived} salesByDateMetrics={salesByDateMetrics} />
 
       {/* ── 채널 도넛 + 장바구니 퍼널 ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>

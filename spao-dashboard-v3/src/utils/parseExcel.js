@@ -581,14 +581,17 @@ export function parseStoreCorner(rows) {
   const dates = items.map(i => i.date).filter(Boolean).sort()
   const period = dates.length ? `${dates[0].slice(5, 10)} ~ ${dates[dates.length-1].slice(5, 10)}` : ''
 
-  // ── 코너 단위 사전 집계 ──────────────────────────────────────────────────────
+  // ── 코너 × 컨텐츠 단위 사전 집계 ──────────────────────────────────────────────
   // 원본은 (날짜 × 컨텐츠) 단위라 행이 수십만 개 → 직렬화 시 localStorage/클라우드
-  // 용량 초과(QuotaExceeded / Failed to fetch). 대시보드는 항상 합산해서만 쓰므로
-  // (매체 × 매장그룹 × 매장상세명 × 코너명) 단위로 미리 합산해 행 수를 줄인다.
-  // 합의 합 = 원본 합 이므로 화면 수치는 동일하다.
+  // 용량 초과(QuotaExceeded / Failed to fetch). 날짜를 걷어내고
+  // (매체 × 매장그룹 × 매장상세명 × 코너명 × 컨텐츠) 단위로 미리 합산한다.
+  // 컨텐츠 식별자를 유지해 L3/L4 기획전 클릭 시 상품별 기여도를 보여줄 수 있게 한다.
+  // 다만 컨텐츠 단위는 행이 다시 늘 수 있으므로, 아래에서 코너별 상위 N개만 남기고
+  // 나머지는 "기타 N개" 한 행으로 접어 용량을 제어한다.
+  const TOP_CONTENT_PER_CORNER = 30
   const aggMap = new Map()
   for (const i of items) {
-    const key = `${i.media}${i.storeGroup}${i.detailName}${i.cornerName}`
+    const key = `${i.media}${i.storeGroup}${i.detailName}${i.cornerName}~${i.contentNo || i.contentName || ''}`
     let r = aggMap.get(key)
     if (!r) {
       r = {
@@ -596,6 +599,8 @@ export function parseStoreCorner(rows) {
         storeGroup:  i.storeGroup,
         detailName:  i.detailName,
         cornerName:  i.cornerName,
+        contentNo:   i.contentNo,
+        contentName: i.contentName,
         impressions: 0,
         clicks:      0,
         buyerCnt:    0,
@@ -610,7 +615,48 @@ export function parseStoreCorner(rows) {
     r.orderCnt    += i.orderCnt
     r.realAmt     += i.realAmt
   }
-  const aggItems = Array.from(aggMap.values())
+  // 코너별로 묶어 상위 N개 컨텐츠만 유지하고 나머지는 "기타 N개" 한 행으로 접는다.
+  // (코너 합 = 상위 + 기타 = 원본 합 이므로 코너/상위 수치는 모두 동일하다.)
+  const cornerMap = new Map()
+  for (const r of aggMap.values()) {
+    const ck = `${r.media}|${r.storeGroup}|${r.detailName}|${r.cornerName}`
+    let arr = cornerMap.get(ck)
+    if (!arr) { arr = []; cornerMap.set(ck, arr) }
+    arr.push(r)
+  }
+
+  const aggItems = []
+  for (const arr of cornerMap.values()) {
+    if (arr.length <= TOP_CONTENT_PER_CORNER) {
+      for (const r of arr) aggItems.push(r)
+      continue
+    }
+    arr.sort((a, b) => b.realAmt - a.realAmt)
+    const top = arr.slice(0, TOP_CONTENT_PER_CORNER)
+    const rest = arr.slice(TOP_CONTENT_PER_CORNER)
+    for (const r of top) aggItems.push(r)
+    const etc = {
+      media:       arr[0].media,
+      storeGroup:  arr[0].storeGroup,
+      detailName:  arr[0].detailName,
+      cornerName:  arr[0].cornerName,
+      contentNo:   '',
+      contentName: `기타 ${rest.length}개`,
+      impressions: 0,
+      clicks:      0,
+      buyerCnt:    0,
+      orderCnt:    0,
+      realAmt:     0,
+    }
+    for (const r of rest) {
+      etc.impressions += r.impressions
+      etc.clicks      += r.clicks
+      etc.buyerCnt    += r.buyerCnt
+      etc.orderCnt    += r.orderCnt
+      etc.realAmt     += r.realAmt
+    }
+    aggItems.push(etc)
+  }
 
   return { sigma: sigmaObj, items: aggItems, period }
 }

@@ -10,7 +10,9 @@ import L4_ExhibitionAnalysis from './components/L4_ExhibitionAnalysis'
 import SnapshotSaveModal from './components/SnapshotSaveModal'
 import SnapshotManageModal from './components/SnapshotManageModal'
 import WeekControl from './components/WeekControl'
+import DataQualityBanner from './components/DataQualityBanner'
 import { previousWeekKey, mostRecentWeekKey } from './utils/weekNav'
+import { checkDataQuality } from './utils/dataQuality'
 import './index.css'
 
 // ─── 파일 정의 ───────────────────────────────────────────────────────────────
@@ -288,13 +290,19 @@ export default function App() {
       setThisWeek(merged)
       const meta = snapshotIndex.find(r => r.week_key === selectedWeekKey)
       const filesPresent = ALL_FILES.filter(f => merged[f.key]).map(f => f.key)
-      await upsertSnapshot({
+      const res = await upsertSnapshot({
         weekKey: selectedWeekKey,
         weekLabel: meta?.week_label || selectedWeekKey,
         weekStart: meta?.week_start || null,
         weekEnd: meta?.week_end || null,
         payload: merged, filesPresent,
       })
+      if (!res?.ok) {
+        setError(`클라우드 저장에 실패했습니다: ${res?.reason || '알 수 없는 오류'}`)
+        setLoading(false)
+        return
+      }
+      if (res.shrunk) setBulkLog([...log, { file: '⚠ 용량 안내', status: 'skip', msg: '데이터가 커서 매장코너 상품 디테일은 코너 단위로 축약 저장했습니다.' }])
       await refreshIndex()
     }
     setLoading(false)
@@ -312,11 +320,17 @@ export default function App() {
     const dk = deriveWeekKey(period)
     const filesPresent = ALL_FILES.filter(f => merged[f.key]).map(f => f.key)
     if (dk.ok) {
-      await upsertSnapshot({
+      const res = await upsertSnapshot({
         weekKey: dk.weekKey, weekLabel: dk.weekLabel,
         weekStart: dk.weekStart, weekEnd: dk.weekEnd,
         payload: merged, filesPresent,
       })
+      if (!res?.ok) {
+        setError(`클라우드 저장에 실패했습니다: ${res?.reason || '알 수 없는 오류'}`)
+        setLoading(false)
+        return
+      }
+      if (res.shrunk) setBulkLog([...log, { file: '⚠ 용량 안내', status: 'skip', msg: '데이터가 커서 매장코너 상품 디테일은 코너 단위로 축약 저장했습니다.' }])
       const idx = await refreshIndex()
       setCompareWeekKey(null)
       await applySelectedWeek(dk.weekKey, null, idx)
@@ -373,8 +387,22 @@ export default function App() {
     return computeSearchMetrics(thisWeek.search, lastWeek.search || null)
   }, [thisWeek.search, lastWeek.search])
 
-  const thisPeriod = thisWeek.salesByDate?.period || thisWeek.sales?.period || thisWeek.cart?.period || ''
-  const lastPeriod = lastWeek.sales?.period || lastWeek.cart?.period || ''
+  // 스냅샷 메타(week_start~week_end)로 정확한 기간 범위를 만든다. (비교 필드와 동일한 형식)
+  const rangeFromMeta = (weekKey) => {
+    const m = snapshotIndex.find((r) => r.week_key === weekKey)
+    if (m?.week_start && m?.week_end) return `${m.week_start.slice(5)} ~ ${m.week_end.slice(5)}`
+    return ''
+  }
+  // 데이터 품질 교차검증 — raw 데이터 이상 자동 감지
+  const dataWarnings = useMemo(
+    () => checkDataQuality({ derived, salesByDate: salesByDateMetrics, search: searchMetrics }),
+    [derived, salesByDateMetrics, searchMetrics],
+  )
+
+  const thisPeriod = rangeFromMeta(selectedWeekKey)
+    || thisWeek.salesByDate?.period || thisWeek.sales?.period || thisWeek.cart?.period || ''
+  const lastPeriod = rangeFromMeta(compareWeekKey)
+    || lastWeek.sales?.period || lastWeek.cart?.period || ''
   const insightCount = derived?.insights?.length ?? 0
 
   const SYNC_META = {
@@ -607,6 +635,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── 데이터 품질 경고 스트립 ── */}
+      {(coreLoaded || hasCornerData) && <DataQualityBanner warnings={dataWarnings} />}
 
       {/* ── 대시보드 ── */}
       {(coreLoaded || hasCornerData) && (

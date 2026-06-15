@@ -7,6 +7,7 @@ import {
 import { parseStyleCode } from '../utils/styleCodeParser'
 import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
 import { heatColor } from './common/HeatCell'
+import WoWBadge from './common/WoWBadge'
 
 const PALETTE = ['#378ADD', '#5DCAA5', '#7F77DD', '#EF9F27', '#E24B4A', '#B4B2A9', '#1A8060', '#B45309']
 const GENDER_COLOR = { '여성': '#7F77DD', '남성': '#378ADD', '공용': '#5DCAA5', '키즈': '#EF9F27', '콜라보': '#E24B4A' }
@@ -56,17 +57,30 @@ function CoverageBanner({ matchedRate, unmatchedCodes }) {
   )
 }
 
-// ─── 1. 상품 Top 15 탭 ───────────────────────────────────────────────────────
-function ProductTable({ rows, valueKey, valueLabel, valueFormatter }) {
+// ─── 전주 대비(WoW) 셀 ───────────────────────────────────────────────────────
+function WoWCell({ wow }) {
+  return <WoWBadge wow={wow} showNew size="xs" />
+}
+
+// ─── 1. 상품 Top 50 탭 (20개 노출 + 펼치기, 전주 대비 WoW) ───────────────────
+const VISIBLE_ROWS = 20
+
+function ProductTable({ rows, valueKey, valueLabel, valueFormatter, hasWoW }) {
+  const [expanded, setExpanded] = useState(false)
   const maxVal = rows.length > 0 ? rows[0][valueKey] : 1
   if (rows.length === 0) return <div style={{ textAlign: 'center', color: '#A0A09E', padding: '24px 0', fontSize: '0.875rem' }}>데이터 없음</div>
+
+  const visibleRows = expanded ? rows : rows.slice(0, VISIBLE_ROWS)
+  const hiddenCount = rows.length - VISIBLE_ROWS
+  const headers = ['#', '스타일코드', '상품명', '품목', '성별', '시즌', valueLabel]
+  if (hasWoW) headers.push('전주 대비')
 
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
         <thead>
           <tr style={{ background: '#F8F8F7', borderBottom: '1px solid #E8E8E6' }}>
-            {['#', '스타일코드', '상품명', '품목', '성별', '시즌', valueLabel].map((h, i) => (
+            {headers.map((h, i) => (
               <th key={h} style={{ padding: '8px 10px', textAlign: i >= 4 ? 'right' : 'left', fontWeight: 600, color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                 {h}
               </th>
@@ -74,7 +88,7 @@ function ProductTable({ rows, valueKey, valueLabel, valueFormatter }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
+          {visibleRows.map((r, i) => {
             const parsed = parseStyleCode(r.styleCode)
             const ratio  = maxVal > 0 ? r[valueKey] / maxVal : 0
             const gColor = GENDER_COLOR[parsed.gender] || '#B4B2A9'
@@ -101,27 +115,45 @@ function ProductTable({ rows, valueKey, valueLabel, valueFormatter }) {
                     {valueFormatter(r[valueKey])}
                   </span>
                 </td>
+                {hasWoW && (
+                  <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                    <WoWCell wow={r.wow} />
+                  </td>
+                )}
               </tr>
             )
           })}
         </tbody>
       </table>
+      {hiddenCount > 0 && (
+        <div style={{ textAlign: 'center', marginTop: 10 }}>
+          <button onClick={() => setExpanded(e => !e)} style={{
+            padding: '7px 20px', borderRadius: 20, border: '1px solid #E8E8E6',
+            background: expanded ? '#F8F8F7' : '#EFF6FF',
+            color: expanded ? '#6B6B68' : '#1D4ED8',
+            fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer',
+          }}>
+            {expanded ? '▲ 접기 (상위 20개만 보기)' : `▼ 나머지 ${hiddenCount}개 더 보기 (Top ${rows.length})`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-function ProductTabs({ salesTop15, wishTop15, cartTop15 }) {
+function ProductTabs({ salesTop15, wishTop15, cartTop15, hasWoW }) {
   const [active, setActive] = useState('sales')
   const tabs = [
-    { id: 'sales', label: '판매 Top 15',      data: salesTop15, valueKey: 'realAmt', valueLabel: '실주문금액', fmt: fmt억 },
-    { id: 'wish',  label: '관심(찜) Top 15',  data: wishTop15,  valueKey: 'wishCnt', valueLabel: '찜수',       fmt: v => fmtComma(v) + '건' },
-    { id: 'cart',  label: '장바구니 Top 15',  data: cartTop15,  valueKey: 'cartCnt', valueLabel: '담기수',     fmt: v => fmtComma(v) + '건' },
+    { id: 'sales', label: '판매 Top 50',      data: salesTop15, valueKey: 'realAmt', valueLabel: '실주문금액', fmt: fmt억 },
+    { id: 'wish',  label: '관심(찜) Top 50',  data: wishTop15,  valueKey: 'wishCnt', valueLabel: '찜수',       fmt: v => fmtComma(v) + '건' },
+    { id: 'cart',  label: '장바구니 Top 50',  data: cartTop15,  valueKey: 'cartCnt', valueLabel: '담기수',     fmt: v => fmtComma(v) + '건' },
   ]
   const cur = tabs.find(t => t.id === active)
 
   return (
     <div className="card p-5">
-      <SectionHeader icon="📋" title="상품 실적 Top 15" perspective="MD" color="#EF9F27" />
+      <SectionHeader icon="📋" title="상품 실적 Top 50" perspective="MD" color="#EF9F27"
+        badge={hasWoW ? '상위 20개 노출 · 펼치면 50위까지 · 전주 대비 WoW' : '상위 20개 노출 · 펼치면 50위까지'} />
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setActive(t.id)} style={{
@@ -134,7 +166,7 @@ function ProductTabs({ salesTop15, wishTop15, cartTop15 }) {
           </button>
         ))}
       </div>
-      <ProductTable rows={cur.data} valueKey={cur.valueKey} valueLabel={cur.valueLabel} valueFormatter={cur.fmt} />
+      <ProductTable key={active} rows={cur.data} valueKey={cur.valueKey} valueLabel={cur.valueLabel} valueFormatter={cur.fmt} hasWoW={hasWoW} />
     </div>
   )
 }
@@ -171,7 +203,10 @@ function NewVsCarrySection({ newVsCarry }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>실주문금액</div>
-                  <div style={{ fontWeight: 700, fontSize: '1.25rem', color: '#1A1A1A' }}>{fmt억(d.realAmt)}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1.25rem', color: '#1A1A1A' }}>{fmt억(d.realAmt)}</span>
+                    <WoWBadge wow={d.wow} size="xs" suffix="vs 전주" />
+                  </div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>매출 비중</div>
@@ -200,7 +235,7 @@ function NewVsCarrySection({ newVsCarry }) {
 // ─── 3. 파레토 분석 (상품 집중도) ───────────────────────────────────────────
 function ParetoSection({ pareto }) {
   if (!pareto || pareto.total === 0) return null
-  const { count80, total, pct80, top10 } = pareto
+  const { count80, total, pct80, top10, count80Wow } = pareto
   const maxPct = top10[0]?.pct || 1
 
   return (
@@ -212,6 +247,11 @@ function ParetoSection({ pareto }) {
           <div style={{ fontSize: '0.6875rem', color: '#7F77DD', fontWeight: 600, marginBottom: 4 }}>매출 80% 커버 SKU 수</div>
           <div style={{ fontWeight: 800, fontSize: '2rem', color: '#7F77DD' }}>{count80}<span style={{ fontSize: '1rem' }}>개</span></div>
           <div style={{ fontSize: '0.75rem', color: '#A0A09E' }}>전체 {total}개 중 {pct80}%</div>
+          {count80Wow !== null && count80Wow !== undefined && (
+            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'center' }}>
+              <WoWBadge wow={count80Wow} size="xs" suffix="vs 전주" />
+            </div>
+          )}
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
           {pct80 <= 20 ? (
@@ -252,6 +292,7 @@ function ParetoSection({ pareto }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
               <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1A1A1A' }}>{fmt억(p.realAmt)}</span>
+              <WoWBadge wow={p.wow} size="xs" />
               <span style={{ fontSize: '0.625rem', background: '#F5F3FF', color: '#7F77DD', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>누적 {p.cumPct}%</span>
             </div>
           </div>
@@ -274,7 +315,7 @@ function CategoryFunnelSection({ catFunnel }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
           <thead>
             <tr style={{ background: '#F8F8F7', borderBottom: '1px solid #E8E8E6' }}>
-              {['카테고리', '관심(찜)', '장바구니', '실주문금액', '전환 강도'].map((h, i) => (
+              {['카테고리', '관심(찜)', '장바구니', '실주문금액', '전주 대비', '전환 강도'].map((h, i) => (
                 <th key={h} style={{ padding: '8px 12px', textAlign: i === 0 ? 'left' : 'right', fontWeight: 600, color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                   {h}
                 </th>
@@ -307,6 +348,9 @@ function CategoryFunnelSection({ catFunnel }) {
                       <div style={{ width: `${barW}px`, height: 6, background: heatColor(ratio * 0.85), borderRadius: 3 }} />
                       <span style={{ fontWeight: 700, color: '#1A1A1A', minWidth: 48 }}>{fmt억(d.realAmt)}</span>
                     </div>
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', justifyContent: 'flex-end' }}><WoWBadge wow={d.wow} size="xs" /></div>
                   </td>
                   <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                     {convStrength !== '—' ? (
@@ -455,6 +499,7 @@ function IPChart({ ipData }) {
                 </div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1A1A1A', minWidth: 40, textAlign: 'right' }}>{fmt억(d.realAmt)}</span>
                 <span style={{ fontSize: '0.6875rem', color: '#A0A09E', minWidth: 36, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                <span style={{ minWidth: 52, textAlign: 'right' }}><WoWBadge wow={d.wow} size="xs" /></span>
               </div>
             )
           })}
@@ -485,6 +530,17 @@ function CatChart({ catData }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      {/* 카테고리별 전주 대비 */}
+      {catData.some(d => d.wow !== null && d.wow !== undefined) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8, paddingTop: 12, borderTop: '1px solid #F0F0EE' }}>
+          {catData.map(d => (
+            <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#F8F8F7', borderRadius: 6, padding: '3px 8px' }}>
+              <span style={{ fontSize: '0.6875rem', color: '#6B6B68' }}>{d.name}</span>
+              <WoWBadge wow={d.wow} size="xs" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -492,7 +548,7 @@ function CatChart({ catData }) {
 // ─── 아이템×성별 복종 실적 테이블 ───────────────────────────────────────────────
 const IG_COLS = ['여성', '남성', '키즈', '공용', '콜라보', '기타']
 
-function ItemGenderTable({ itemGenderMatrix }) {
+function ItemGenderTable({ itemGenderMatrix, itemGenderColWow }) {
   if (!itemGenderMatrix || itemGenderMatrix.length === 0) return null
   const maxVal = Math.max(...itemGenderMatrix.map(r => r.total), 1)
 
@@ -528,6 +584,7 @@ function ItemGenderTable({ itemGenderMatrix }) {
                 <th key={g} style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #E8E8E6', color: GENDER_COLOR[g] || '#6B6B68' }}>{g}</th>
               ))}
               <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700, borderBottom: '1px solid #E8E8E6', color: '#378ADD', background: '#EFF6FF' }}>합계</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #E8E8E6', color: '#6B6B68' }}>전주 대비</th>
               <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #E8E8E6', color: '#6B6B68' }}>SKU수</th>
             </tr>
           </thead>
@@ -540,9 +597,12 @@ function ItemGenderTable({ itemGenderMatrix }) {
                 return (
                   <td key={g} style={{ textAlign: 'right', padding: '7px 10px', fontWeight: 700, fontSize: '0.75rem', color: colTotals[g] > 0 ? (GENDER_COLOR[g] || '#1A1A1A') : '#C4C4C0' }}>
                     {colTotals[g] > 0 ? (
-                      <span>
-                        {fmt억(colTotals[g])}<br />
+                      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                        {fmt억(colTotals[g])}
                         <span style={{ fontSize: '0.6875rem', fontWeight: 400, color: '#6B6B68' }}>{pct}%</span>
+                        {itemGenderColWow?.[g] !== null && itemGenderColWow?.[g] !== undefined && (
+                          <WoWBadge wow={itemGenderColWow[g]} size="xs" />
+                        )}
                       </span>
                     ) : '—'}
                   </td>
@@ -551,6 +611,7 @@ function ItemGenderTable({ itemGenderMatrix }) {
               <td style={{ textAlign: 'right', padding: '7px 10px', fontWeight: 700, fontSize: '0.8125rem', color: '#378ADD', background: '#EFF6FF' }}>
                 {fmt억(grandTotal)}
               </td>
+              <td style={{ textAlign: 'right', padding: '7px 10px' }} />
               <td style={{ textAlign: 'right', padding: '7px 10px', color: '#6B6B68', fontSize: '0.75rem' }}>
                 {totalSkuCount}개
               </td>
@@ -565,6 +626,9 @@ function ItemGenderTable({ itemGenderMatrix }) {
                 ))}
                 <td style={{ textAlign: 'right', padding: '5px 10px', fontWeight: 700, fontSize: '0.8125rem', color: '#378ADD', background: '#EFF6FF' }}>
                   {fmt억(row.total)}
+                </td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>
+                  <div style={{ display: 'inline-flex', justifyContent: 'flex-end' }}><WoWBadge wow={row.totalWow} size="xs" /></div>
                 </td>
                 <td style={{ textAlign: 'right', padding: '5px 10px', color: '#6B6B68', fontSize: '0.75rem' }}>
                   {row.skuCount}개
@@ -585,7 +649,7 @@ export default function L2_ProductAnalysis({ derived }) {
     salesTop15, wishTop15, cartTop15,
     pvGapList, catData, catFunnel, ipData,
     newVsCarry, pareto, genderCatData, topCatsForCross,
-    itemGenderMatrix,
+    itemGenderMatrix, itemGenderColWow, hasWoW,
   } = derived
 
   return (
@@ -593,8 +657,8 @@ export default function L2_ProductAnalysis({ derived }) {
       {/* 코드 커버리지 경고 */}
       <CoverageBanner matchedRate={matchedRate} unmatchedCodes={unmatchedCodes} />
 
-      {/* 1. 상품 Top 15 */}
-      <ProductTabs salesTop15={salesTop15} wishTop15={wishTop15} cartTop15={cartTop15} />
+      {/* 1. 상품 Top 50 */}
+      <ProductTabs salesTop15={salesTop15} wishTop15={wishTop15} cartTop15={cartTop15} hasWoW={hasWoW} />
 
       {/* 2. 신상 vs 이월 */}
       <NewVsCarrySection newVsCarry={newVsCarry} />
@@ -618,7 +682,7 @@ export default function L2_ProductAnalysis({ derived }) {
       </div>
 
       {/* 9. 아이템×성별 복종 실적 */}
-      <ItemGenderTable itemGenderMatrix={itemGenderMatrix} />
+      <ItemGenderTable itemGenderMatrix={itemGenderMatrix} itemGenderColWow={itemGenderColWow} />
     </div>
   )
 }

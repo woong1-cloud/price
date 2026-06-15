@@ -10,12 +10,13 @@ import {
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell, LabelList,
 } from 'recharts'
 import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
+import WoWBadge from './common/WoWBadge'
 
 const MEDIA_COLORS = { APP: '#5DCAA5', MOBILE: '#378ADD', PC: '#B4B2A9' }
 const MEDIA_ORDER  = ['MOBILE', 'APP', 'PC']
 
 // ─── 핵심 KPI 타일 ───────────────────────────────────────────────────────────
-function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight }) {
+function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight, wow, wowKind, wowInvert }) {
   return (
     <div style={{
       background: bg || '#fff',
@@ -33,6 +34,11 @@ function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight }) 
       <div style={{ fontWeight: 800, fontSize: '1.5rem', color: highlight ? color : '#1A1A1A', lineHeight: 1 }}>
         {value}
       </div>
+      {(wow !== null && wow !== undefined) && (
+        <div style={{ marginTop: 7 }}>
+          <WoWBadge wow={wow} kind={wowKind} invert={wowInvert} suffix="vs 전주" />
+        </div>
+      )}
       {sub && <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>{sub}</div>}
     </div>
   )
@@ -246,28 +252,31 @@ export default function SalesScoreboard({ salesByDateMetrics, visitMetrics, cart
     )
   }
 
-  const { sigma, cancelRate, aov, discountRate, benefitRate, cancelAmt, channelStats, dailyOrders, medias } = salesByDateMetrics
+  const { sigma, cancelRate, aov, discountRate, benefitRate, cancelAmt, channelStats, dailyOrders, medias, wow } = salesByDateMetrics
+  const w = wow || {}
 
   const kpiTiles = [
-    { label: '실주문금액',  value: fmt억(sigma.realAmt),                    icon: '💰', color: '#378ADD', highlight: true },
-    { label: '주문자수',    value: fmtComma(sigma.buyerCnt) + '명',          icon: '👤', color: '#5DCAA5' },
-    { label: '주문건수',    value: fmtComma(sigma.orderCnt) + '건',          icon: '📋', color: '#7F77DD' },
-    { label: '실주문건수',  value: fmtComma(sigma.realOrderCnt) + '건',      icon: '✅', color: '#5DCAA5' },
+    { label: '실주문금액',  value: fmt억(sigma.realAmt),                    icon: '💰', color: '#378ADD', highlight: true, wow: w.realAmt },
+    { label: '주문자수',    value: fmtComma(sigma.buyerCnt) + '명',          icon: '👤', color: '#5DCAA5', wow: w.buyerCnt },
+    { label: '주문건수',    value: fmtComma(sigma.orderCnt) + '건',          icon: '📋', color: '#7F77DD', wow: w.orderCnt },
+    { label: '실주문건수',  value: fmtComma(sigma.realOrderCnt) + '건',      icon: '✅', color: '#5DCAA5', wow: w.realOrderCnt },
     {
       label: '취소/반품율',
       value: cancelRate.toFixed(1) + '%',
       icon: '↩', color: '#E24B4A',
       sub: `취소금액 ${fmt억(cancelAmt)}`,
       bg: cancelRate > 10 ? '#FEF2F2' : undefined,
+      wow: w.cancelRate, wowKind: 'pp', wowInvert: true,
     },
     {
       label: '건당 평균금액(AOV)',
       value: fmtComma(Math.round(aov)) + '원',
       icon: '🎯', color: '#EF9F27',
       sub: 'PC 최고 · MOBILE 최저',
+      wow: w.aov,
     },
-    { label: '혜택 할인금액', value: fmt억(sigma.discountAmt),               icon: '🏷',  color: '#B45309', sub: `할인율 ${discountRate.toFixed(1)}%` },
-    { label: '혜택 적용율',   value: benefitRate.toFixed(1) + '%',           icon: '🎁', color: '#1A8060', sub: `총혜택 ${fmt억(sigma.totalBenefit)}` },
+    { label: '혜택 할인금액', value: fmt억(sigma.discountAmt),               icon: '🏷',  color: '#B45309', sub: `할인율 ${discountRate.toFixed(1)}%`, wow: w.discountAmt, wowInvert: true },
+    { label: '혜택 적용율',   value: benefitRate.toFixed(1) + '%',           icon: '🎁', color: '#1A8060', sub: `총혜택 ${fmt억(sigma.totalBenefit)}`, wow: w.benefitRate, wowKind: 'pp' },
   ]
 
   return (
@@ -277,7 +286,16 @@ export default function SalesScoreboard({ salesByDateMetrics, visitMetrics, cart
         <span style={{ width: 3, height: 16, background: '#378ADD', borderRadius: 2, display: 'inline-block' }} />
         <span style={{ fontWeight: 700, fontSize: '1rem', color: '#1A1A1A' }}>📈 매출 스코어보드</span>
         <span style={{ fontSize: '0.75rem', color: '#A0A09E', marginLeft: 4 }}>기간별 매출분석 기준</span>
-        <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#EFF6FF', color: '#378ADD', border: '1px solid #BFDBFE', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+        {wow ? (
+          <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#F0FDF8', color: '#1A8060', border: '1px solid #BBF7D0', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+            ● 전주 대비(WoW) 활성{wow.period ? ` · 전주 ${wow.period}` : ''}
+          </span>
+        ) : (
+          <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#F8F8F7', color: '#A0A09E', border: '1px solid #E8E8E6', borderRadius: 4, padding: '2px 8px', fontWeight: 500 }}>
+            전주 데이터 업로드 시 WoW 표시
+          </span>
+        )}
+        <span style={{ fontSize: '0.6875rem', background: '#EFF6FF', color: '#378ADD', border: '1px solid #BFDBFE', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
           {salesByDateMetrics.period}
         </span>
       </div>

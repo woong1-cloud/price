@@ -105,18 +105,107 @@ export async function loadSnapshotPayload(weekKey) {
   }
 }
 
+// 클라우드 jsonb 저장 한도 가드.
+// Supabase API 게이트웨이는 본문이 너무 크면 전송에 실패한다(측정: 24MB OK, 32MB 실패).
+// 가장 무거운 storeCorner(코너×컨텐츠) 가 한도를 넘기면 코너별 컨텐츠 상위 N개만 남기고
+// 나머지를 "기타"로 접어 점진적으로 축소(progressive recap)한다 → 컨텐츠 디테일을 최대한 보존.
+// 그래도 한도를 넘으면 마지막 수단으로 코너 단위 완전 축약(컨텐츠 제거).
+const CLOUD_PAYLOAD_LIMIT = 18_000_000  // 직렬화 ~18MB (측정 한도 24MB 아래 안전 마진)
+const RECAP_STEPS = [12, 6, 3]           // 코너별 컨텐츠 상위 N개로 점진 축소
+
+// storeCorner.items 를 (매체×매장그룹×매장상세명×코너명) 단위로 다시 합쳐 컨텐츠 행을 제거
+function collapseStoreCorner(storeCorner) {
+  if (!storeCorner || !Array.isArray(storeCorner.items)) return storeCorner
+  const map = new Map()
+  for (const i of storeCorner.items) {
+    const k = `${i.media}|${i.storeGroup}|${i.detailName}|${i.cornerName}`
+    let r = map.get(k)
+    if (!r) {
+      r = {
+        media: i.media, storeGroup: i.storeGroup, detailName: i.detailName, cornerName: i.cornerName,
+        contentNo: '', contentName: '',
+        impressions: 0, clicks: 0, buyerCnt: 0, orderCnt: 0, realAmt: 0,
+      }
+      map.set(k, r)
+    }
+    r.impressions += i.impressions || 0
+    r.clicks      += i.clicks || 0
+    r.buyerCnt    += i.buyerCnt || 0
+    r.orderCnt    += i.orderCnt || 0
+    r.realAmt     += i.realAmt || 0
+  }
+  return { ...storeCorner, items: Array.from(map.values()) }
+}
+
+// storeCorner.items 를 코너별 컨텐츠 상위 topN 개만 남기고 나머지는 "기타 N개" 한 행으로 접는다.
+function recapStoreCorner(storeCorner, topN) {
+  if (!storeCorner || !Array.isArray(storeCorner.items)) return storeCorner
+  // 코너 단위로 그룹핑
+  const groups = new Map()
+  for (const i of storeCorner.items) {
+    const k = `${i.media}|${i.storeGroup}|${i.detailName}|${i.cornerName}`
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k).push(i)
+  }
+  const out = []
+  for (const rows of groups.values()) {
+    const sorted = [...rows].sort((a, b) => (b.realAmt || 0) - (a.realAmt || 0))
+    const keep = sorted.slice(0, topN)
+    const rest = sorted.slice(topN)
+    out.push(...keep)
+    if (rest.length > 0) {
+      const f = rest[0]
+      const etc = {
+        media: f.media, storeGroup: f.storeGroup, detailName: f.detailName, cornerName: f.cornerName,
+        contentNo: '', contentName: `기타 ${rest.length}개`,
+        impressions: 0, clicks: 0, buyerCnt: 0, orderCnt: 0, realAmt: 0,
+      }
+      for (const r of rest) {
+        etc.impressions += r.impressions || 0
+        etc.clicks      += r.clicks || 0
+        etc.buyerCnt    += r.buyerCnt || 0
+        etc.orderCnt    += r.orderCnt || 0
+        etc.realAmt     += r.realAmt || 0
+      }
+      out.push(etc)
+    }
+  }
+  return { ...storeCorner, items: out }
+}
+
+// payload 가 한도를 넘으면 storeCorner 를 점진 축약한 사본을 돌려준다.
+function fitPayloadForCloud(payload) {
+  try {
+    if (JSON.stringify(payload).length <= CLOUD_PAYLOAD_LIMIT) return { payload, shrunk: false }
+    if (payload?.storeCorner) {
+      // 1) 점진 축소: 코너별 컨텐츠 상위 12 → 6 → 3 개로 줄여보며 한도 안에 들면 채택
+      for (const topN of RECAP_STEPS) {
+        const reduced = { ...payload, storeCorner: recapStoreCorner(payload.storeCorner, topN) }
+        if (JSON.stringify(reduced).length <= CLOUD_PAYLOAD_LIMIT) return { payload: reduced, shrunk: true }
+      }
+      // 2) 마지막 수단: 코너 단위 완전 축약(컨텐츠 제거)
+      const collapsed = { ...payload, storeCorner: collapseStoreCorner(payload.storeCorner) }
+      return { payload: collapsed, shrunk: true }
+    }
+    return { payload, shrunk: false }
+  } catch {
+    return { payload, shrunk: false }
+  }
+}
+
 // 주차 저장/덮어쓰기 — week_key 기준 upsert
 export async function upsertSnapshot({ weekKey, weekLabel, weekStart, weekEnd, payload, filesPresent = [], updatedBy = null }) {
   if (!supabase) return { ok: false, reason: 'no-client' }
   if (!weekKey) return { ok: false, reason: 'no-week-key' }
   try {
     const now = new Date().toISOString()
+    const fitted = fitPayloadForCloud(payload)
     const row = {
       week_key: weekKey,
       week_label: weekLabel || weekKey,
       week_start: weekStart || null,
       week_end: weekEnd || null,
-      payload,
+      payload: fitted.payload,
       files_present: filesPresent,
       updated_at: now,
       updated_by: updatedBy,
@@ -125,7 +214,7 @@ export async function upsertSnapshot({ weekKey, weekLabel, weekStart, weekEnd, p
       .from('weekly_snapshots')
       .upsert(row, { onConflict: 'week_key' })
     if (error) { console.warn('스냅샷 저장 실패:', error.message); return { ok: false, reason: error.message } }
-    return { ok: true }
+    return { ok: true, shrunk: fitted.shrunk }
   } catch (e) {
     console.warn('스냅샷 저장 예외:', e)
     return { ok: false, reason: e.message }

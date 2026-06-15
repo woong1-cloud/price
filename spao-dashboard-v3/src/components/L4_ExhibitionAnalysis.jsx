@@ -1,4 +1,11 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
+import WoWBadge from './common/WoWBadge'
+
+// 전주 대비 증감률(%) — prev 가 0/falsy 면 null
+function wowPct(curr, prev) {
+  if (prev === null || prev === undefined || prev === 0) return null
+  return (curr - prev) / prev * 100
+}
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const MEDIA_OPTIONS = [
@@ -31,7 +38,7 @@ function heatBg(ratio) {
 }
 
 // ─── KPI 카드 ─────────────────────────────────────────────────────────────────
-function KpiCard({ icon, label, value, sub, color = '#378ADD' }) {
+function KpiCard({ icon, label, value, sub, color = '#378ADD', wow, wowKind = 'pct', wowInvert = false }) {
   return (
     <div style={{
       background: '#fff', borderRadius: 12, padding: '16px 20px',
@@ -40,7 +47,10 @@ function KpiCard({ icon, label, value, sub, color = '#378ADD' }) {
       <div style={{ fontSize: '0.75rem', color: '#A0A09E', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
         <span>{icon}</span>{label}
       </div>
-      <div style={{ fontSize: '1.4rem', fontWeight: 700, color, letterSpacing: '-0.5px' }}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '1.4rem', fontWeight: 700, color, letterSpacing: '-0.5px' }}>{value}</span>
+        {wow !== undefined && <WoWBadge wow={wow} kind={wowKind} invert={wowInvert} size="xs" />}
+      </div>
       {sub && <div style={{ fontSize: '0.75rem', color: '#A0A09E', marginTop: 2 }}>{sub}</div>}
     </div>
   )
@@ -68,18 +78,23 @@ function aggregate(items) {
 }
 
 // ─── 전체 기획전 리스트 테이블 ────────────────────────────────────────────────
-function ExhibitionTable({ rows, selectedKey, onSelect, keyField = 'detailName' }) {
+function ExhibitionTable({ rows, selectedKey, onSelect, keyField = 'detailName', prevMap = null }) {
   // 바 너비: 최대값 대비 (시각적 비교용)
   const maxAmt   = Math.max(...rows.map(r => r.realAmt), 1)
   // 기여 비중: 전체 합계 대비 (올바른 %)
   const totalAmt = rows.reduce((s, r) => s + r.realAmt, 0) || 1
+  const hasWoW = !!prevMap
+
+  const COLS = hasWoW
+    ? ['구역명', '노출수', '클릭수', 'CTR', '주문금액', '실주문금액', '전주 대비', '구매전환율', '구매기여 비중']
+    : ['구역명', '노출수', '클릭수', 'CTR', '주문금액', '실주문금액', '구매전환율', '구매기여 비중']
 
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
         <thead>
           <tr style={{ background: '#F8F8F7' }}>
-            {['구역명', '노출수', '클릭수', 'CTR', '주문금액', '실주문금액', '구매전환율', '구매기여 비중'].map(h => (
+            {COLS.map(h => (
               <th key={h} style={{ padding: '8px 12px', textAlign: h === '구역명' ? 'left' : 'right', fontWeight: 600, color: '#6B6B68', whiteSpace: 'nowrap', borderBottom: '1px solid #E8E8E6' }}>{h}</th>
             ))}
           </tr>
@@ -125,6 +140,13 @@ function ExhibitionTable({ rows, selectedKey, onSelect, keyField = 'detailName' 
                 <td style={{ padding: '9px 12px', textAlign: 'right', color: row.ctr > 0.03 ? '#1A8060' : '#6B6B68', fontWeight: row.ctr > 0.03 ? 600 : 400 }}>{fmtCTR(row.ctr)}</td>
                 <td style={{ padding: '9px 12px', textAlign: 'right', color: '#6B6B68' }}>{fmtAmt(row.orderAmt ?? 0)}</td>
                 <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 600, color: '#1A1A1A', background: heatBg(barRatio) }}>{fmtAmt(row.realAmt)}</td>
+                {hasWoW && (
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', justifyContent: 'flex-end' }}>
+                      <WoWBadge wow={wowPct(row.realAmt, prevMap[row[keyField]])} size="xs" showNew />
+                    </div>
+                  </td>
+                )}
                 <td style={{ padding: '9px 12px', textAlign: 'right', color: row.cvr > 0.02 ? '#1A8060' : '#6B6B68' }}>{fmtPct(row.cvr)}</td>
                 <td style={{ padding: '9px 12px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
@@ -202,8 +224,8 @@ function DrilldownPanel({ title, items }) {
   const maxCornerAmt = Math.max(...cornerRows.map(r => r.realAmt), 1)
   const maxContentAmt = Math.max(...contentRows.map(r => r.realAmt), 1)
 
-  // 코너 단위 사전 집계 데이터는 상품(컨텐츠) 식별자가 없다 → 상품별 표는 숨긴다.
-  const hasContentDetail = items.some(i => i.contentNo)
+  // 상품(컨텐츠) 식별자가 전혀 없는 구버전 집계 데이터면 상품별 표를 숨긴다.
+  const hasContentDetail = items.some(i => i.contentNo || i.contentName)
 
   return (
     <div style={{ background: '#F0F6FF', border: '1.5px solid #BFDBFE', borderTop: 'none', borderRadius: '0 0 14px 14px', padding: '20px 24px', marginBottom: 16 }}>
@@ -308,11 +330,13 @@ function DrilldownPanel({ title, items }) {
 }
 
 // ─── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
-export default function L4_ExhibitionAnalysis({ storeCorner }) {
+export default function L4_ExhibitionAnalysis({ storeCorner, prevStoreCorner }) {
   const [activeGroup, setActiveGroup] = useState('기획전매장')
   const [mediaFilter, setMediaFilter] = useState('ALL')
   const [selectedKey, setSelectedKey] = useState(null)
   const drilldownRef = useRef(null)
+  // 행 클릭 직전 스크롤 위치 — "보던 위치로 복귀" 플로팅 버튼이 사용
+  const returnScrollRef = useRef(0)
 
   // 행 클릭 시 드릴다운 패널로 부드럽게 스크롤
   useEffect(() => {
@@ -364,6 +388,28 @@ export default function L4_ExhibitionAnalysis({ storeCorner }) {
 
   // 전체 합계
   const totalAgg = useMemo(() => aggregate(groupFiltered), [groupFiltered])
+
+  // ── 전주 대비(WoW): 동일 필터 적용 후 집계 ──
+  const prevItems = prevStoreCorner?.items || []
+  const hasWoW = prevItems.length > 0
+  const prevGroupFiltered = useMemo(() => {
+    if (!hasWoW) return []
+    const mf = mediaFilter === 'ALL' ? prevItems : prevItems.filter(i => i.media === mediaFilter)
+    return activeGroup === 'ALL' ? mf : mf.filter(i => i.storeGroup === activeGroup)
+  }, [prevItems, hasWoW, mediaFilter, activeGroup])
+
+  const prevTotalAgg = useMemo(() => aggregate(prevGroupFiltered), [prevGroupFiltered])
+
+  // 구역명(keyField) → 전주 실주문금액 맵
+  const prevAmtMap = useMemo(() => {
+    if (!hasWoW) return null
+    const map = {}
+    for (const i of prevGroupFiltered) {
+      const key = i[keyField] || '(미분류)'
+      map[key] = (map[key] || 0) + (Number(i.realAmt) || 0)
+    }
+    return map
+  }, [prevGroupFiltered, keyField, hasWoW])
 
   // 데이터 없을 때
   if (!storeCorner || items.length === 0) {
@@ -428,12 +474,24 @@ export default function L4_ExhibitionAnalysis({ storeCorner }) {
 
       {/* ── 전체 요약 KPI ── */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-        <KpiCard icon="👁" label="총 노출" value={fmtComma(totalAgg.imp)} color="#6B6B68" />
-        <KpiCard icon="👆" label="총 클릭" value={fmtComma(totalAgg.clk)} sub={`CTR ${fmtCTR(totalAgg.ctr)}`} color="#378ADD" />
-        <KpiCard icon="🛒" label="구매전환" value={fmtComma(totalAgg.buyer) + '명'} sub={`전환율 ${fmtPct(totalAgg.cvr)}`} color="#7C3AED" />
-        <KpiCard icon="💰" label="실주문금액" value={fmtAmt(totalAgg.realAmt)} color="#1A8060" />
+        <KpiCard icon="👁" label="총 노출" value={fmtComma(totalAgg.imp)} color="#6B6B68"
+          wow={hasWoW ? wowPct(totalAgg.imp, prevTotalAgg.imp) : undefined} />
+        <KpiCard icon="👆" label="총 클릭" value={fmtComma(totalAgg.clk)} sub={`CTR ${fmtCTR(totalAgg.ctr)}`} color="#378ADD"
+          wow={hasWoW ? wowPct(totalAgg.clk, prevTotalAgg.clk) : undefined} />
+        <KpiCard icon="🛒" label="구매전환" value={fmtComma(totalAgg.buyer) + '명'} sub={`전환율 ${fmtPct(totalAgg.cvr)}`} color="#7C3AED"
+          wow={hasWoW ? wowPct(totalAgg.buyer, prevTotalAgg.buyer) : undefined} />
+        <KpiCard icon="💰" label="실주문금액" value={fmtAmt(totalAgg.realAmt)} color="#1A8060"
+          wow={hasWoW ? wowPct(totalAgg.realAmt, prevTotalAgg.realAmt) : undefined} />
         <KpiCard icon="📌" label="구역 수" value={`${summaryRows.length}개`} color="#B45309" />
       </div>
+
+      {/* WoW 안내 배지 */}
+      {hasWoW && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, fontSize: '0.75rem', color: '#1D4ED8', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '6px 12px' }}>
+          <span style={{ fontWeight: 700 }}>● 전주 대비(WoW) 활성</span>
+          <span style={{ color: '#6B6B68' }}>지난주 매장코너: {prevStoreCorner?.period || '기간 미상'}</span>
+        </div>
+      )}
 
       {/* ── 전체 기획전(구역) 리스트 ── */}
       <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginBottom: 16 }}>
@@ -446,8 +504,9 @@ export default function L4_ExhibitionAnalysis({ storeCorner }) {
         <ExhibitionTable
           rows={summaryRows}
           selectedKey={selectedKey}
-          onSelect={(key) => setSelectedKey(key)}
+          onSelect={(key) => { returnScrollRef.current = window.scrollY; setSelectedKey(key) }}
           keyField={keyField}
+          prevMap={prevAmtMap}
         />
       </div>
 
@@ -476,6 +535,25 @@ export default function L4_ExhibitionAnalysis({ storeCorner }) {
           </div>
           <DrilldownPanel title={selectedKey} items={drillItems} />
         </div>
+      )}
+
+      {/* ── 보던 위치로 복귀 플로팅 버튼 ── */}
+      {selectedKey && drillItems.length > 0 && (
+        <button
+          onClick={() => window.scrollTo({ top: returnScrollRef.current, behavior: 'smooth' })}
+          title="클릭하기 전 보던 위치로 돌아갑니다"
+          style={{
+            position: 'fixed', right: 24, bottom: 24, zIndex: 1000,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '10px 16px', borderRadius: 24,
+            border: 'none', cursor: 'pointer',
+            background: '#378ADD', color: '#fff',
+            fontSize: '0.8125rem', fontWeight: 700,
+            boxShadow: '0 4px 14px rgba(55,138,221,0.4)',
+          }}
+        >
+          ↑ 보던 위치로
+        </button>
       )}
     </div>
   )

@@ -13,6 +13,7 @@ import {
   ResponsiveContainer, LineChart, Line, Cell,
 } from 'recharts'
 import { fmtComma, fmt억 } from '../utils/metrics'
+import WoWBadge from './common/WoWBadge'
 
 const MEDIA_COLORS = { APP: '#5DCAA5', MOBILE: '#378ADD', PC: '#B4B2A9' }
 
@@ -36,7 +37,7 @@ function SectionHeader({ icon, title, badge, color = '#378ADD' }) {
 }
 
 // ─── KPI 타일 ────────────────────────────────────────────────────────────────
-function KPITile({ label, value, sub, color = '#378ADD', icon }) {
+function KPITile({ label, value, sub, color = '#378ADD', icon, wow, wowKind = 'pct', wowInvert = false }) {
   return (
     <div style={{
       background: '#fff', borderRadius: 12, padding: '14px 16px',
@@ -46,6 +47,9 @@ function KPITile({ label, value, sub, color = '#378ADD', icon }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
         {icon && <span style={{ fontSize: '0.875rem' }}>{icon}</span>}
         <span style={{ fontSize: '0.6875rem', color: '#A0A09E', fontWeight: 500 }}>{label}</span>
+        {wow !== undefined && wow !== null && (
+          <span style={{ marginLeft: 'auto' }}><WoWBadge wow={wow} kind={wowKind} invert={wowInvert} size="xs" /></span>
+        )}
       </div>
       <div style={{ fontWeight: 800, fontSize: '1.375rem', color: '#1A1A1A', lineHeight: 1 }}>{value}</div>
       {sub && <div style={{ fontSize: '0.625rem', color: '#A0A09E', marginTop: 4 }}>{sub}</div>}
@@ -235,18 +239,19 @@ export default function SearchSection({ searchMetrics }) {
   const {
     sigma, successRate, searchConvRate,
     topByOrderAmt, topBySearchVol, topByConvRate, highSearchZeroOrder,
-    mediaStats, dailySearch, totalKeywords, period,
+    mediaStats, dailySearch, totalKeywords, period, wow,
   } = searchMetrics
+  const w = wow || {}
 
   const kpis = [
     { label: '총 검색량',         value: fmtComma(sigma.searchVol),   icon: '🔍', color: '#378ADD',
-      sub: `검색어 ${fmtComma(totalKeywords)}종` },
+      sub: `검색어 ${fmtComma(totalKeywords)}종`, wow: w.searchVol },
     { label: '검색 UV',           value: fmtComma(sigma.uv) + '명',    icon: '👤', color: '#7F77DD',
-      sub: `검색 성공률 ${successRate.toFixed(1)}%` },
+      sub: `검색 성공률 ${successRate.toFixed(1)}%`, wow: w.uv },
     { label: '검색 기반 주문건수', value: fmtComma(sigma.orderCnt) + '건', icon: '📋', color: '#5DCAA5',
-      sub: `주문금액 ${fmt억(sigma.orderAmt)}` },
+      sub: `주문금액 ${fmt억(sigma.orderAmt)}`, wow: w.orderCnt },
     { label: '검색→구매 전환율',  value: searchConvRate.toFixed(2) + '%', icon: '🎯', color: '#EF9F27',
-      sub: `UV 대비 주문 전환` },
+      sub: `UV 대비 주문 전환`, wow: w.convRate, wowKind: 'pp' },
   ]
 
   return (
