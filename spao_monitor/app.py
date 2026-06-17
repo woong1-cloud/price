@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, render_template_string, request
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
 import re
 import time
@@ -990,11 +991,146 @@ def merge_products(channels: dict) -> list:
 
 
 # ─────────────────────────────────────────────
+# 프로모션 계획표 (구글시트 5개 채널 탭)
+#   각 탭 = 그 채널이 "할인하기로 의도된" 스타일 목록 + 기간
+#   대시보드는 이 계획과 실제 가격을 대조해 위반을 탐지
+# ─────────────────────────────────────────────
+_PROMO_SHEET_ID = "1wm8HPxj4SH8Fnvp9IDCLwZ2HMB44Phm6dDrgalH5K-0"
+# 채널 id → 구글시트 탭 이름
+_PROMO_TABS = {
+    "official": "자사몰",
+    "musinsa":  "무신사",
+    "zigzag":   "지그재그",
+    "eland":    "이랜드몰",
+    "naver":    "네이버",
+}
+# 한글 채널명 → 채널 id (자사몰 '할인허용채널' 파싱용)
+_PROMO_CH_ALIAS = {
+    "자사몰": "official", "공홈": "official", "official": "official",
+    "무신사": "musinsa",  "musinsa": "musinsa",
+    "지그재그": "zigzag", "지그제그": "zigzag", "zigzag": "zigzag",
+    "이랜드몰": "eland",  "이랜드": "eland",   "eland": "eland",
+    "네이버": "naver",    "naver": "naver",
+}
+_PROMO_ALL_CH = ["official", "musinsa", "zigzag", "eland", "naver"]
+
+_promo_cache: dict = {}
+_promo_cache_time: float = 0.0
+_promo_error: str = ""
+_promo_lock = threading.Lock()
+_PROMO_TTL = 300   # 5분 캐시
+
+
+def _promo_norm_date(s: str) -> str:
+    """날짜 문자열 정규화 → YYYY-MM-DD (빈값/파싱불가 → '')"""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    # 2026-06-01 / 2026.06.01 / 2026/6/1 모두 허용
+    m = re.match(r"(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})", s)
+    if m:
+        y, mo, d = m.groups()
+        return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+    return ""
+
+
+def _parse_promo_csv(text: str, channel: str) -> dict:
+    """탭 CSV → {styleCode: {start, end, name, allow}}"""
+    import csv as _csv, io as _io
+    rows = list(_csv.reader(_io.StringIO(text)))
+    if not rows:
+        return {}
+    header = [h.strip() for h in rows[0]]
+    # 열 인덱스 매핑 (헤더 이름 기반, 순서 바뀌어도 동작)
+    def col(*names):
+        for nm in names:
+            if nm in header:
+                return header.index(nm)
+        return -1
+    i_code  = col("스타일코드")
+    i_name  = col("스타일명")
+    i_start = col("시작일")
+    i_end   = col("종료일")
+    i_allow = col("할인허용채널")   # 자사몰 탭 전용 (없으면 -1)
+    out: dict = {}
+    for row in rows[1:]:
+        if i_code < 0 or i_code >= len(row):
+            continue
+        code = (row[i_code] or "").strip().upper()
+        if not code:
+            continue
+        start = _promo_norm_date(row[i_start]) if 0 <= i_start < len(row) else ""
+        end   = _promo_norm_date(row[i_end])   if 0 <= i_end   < len(row) else ""
+        name  = (row[i_name].strip() if 0 <= i_name < len(row) else "")
+        # 할인허용채널 파싱 (자사몰 탭)
+        allow = [channel]
+        if 0 <= i_allow < len(row) and row[i_allow].strip():
+            raw = row[i_allow].strip()
+            if "전채널" in raw or "전체" in raw:
+                allow = list(_PROMO_ALL_CH)
+            else:
+                toks = re.split(r"[,/·\s]+", raw)
+                allow = [channel]
+                for t in toks:
+                    cid = _PROMO_CH_ALIAS.get(t.strip())
+                    if cid and cid not in allow:
+                        allow.append(cid)
+        out[code] = {"start": start, "end": end, "name": name, "allow": allow}
+    return out
+
+
+def _fetch_promotions(force: bool = False) -> dict:
+    """구글시트 5개 탭을 읽어 채널별 프로모션 맵 반환 (5분 캐시)"""
+    global _promo_cache, _promo_cache_time, _promo_error
+    now = time.time()
+    with _promo_lock:
+        if not force and _promo_cache and (now - _promo_cache_time) < _PROMO_TTL:
+            return _promo_cache
+
+    result: dict = {}
+    errors = []
+    for ch, tab in _PROMO_TABS.items():
+        try:
+            url = (
+                f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}"
+                f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "spao-monitor/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                text = r.read().decode("utf-8")
+            result[ch] = _parse_promo_csv(text, ch)
+        except Exception as e:
+            result[ch] = {}
+            errors.append(f"{tab}:{e}")
+
+    with _promo_lock:
+        # 일부라도 읽혔으면 갱신 (전부 실패면 기존 캐시 유지)
+        if any(result.values()) or not _promo_cache:
+            _promo_cache = result
+            _promo_cache_time = now
+        _promo_error = "; ".join(errors)
+        return _promo_cache
+
+
+# ─────────────────────────────────────────────
 # 라우트
 # ─────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template_string(open(__file__.replace("app.py", "index.html"), encoding="utf-8").read())
+
+
+@app.route("/api/promotions")
+def api_promotions():
+    """프로모션 계획표 (구글시트) — 채널별 {styleCode: {start,end,name,allow}}"""
+    force = request.args.get("refresh") == "1"
+    data = _fetch_promotions(force=force)
+    return jsonify({
+        "channels":  data,
+        "lastFetch": _promo_cache_time,
+        "error":     _promo_error,
+        "sheetUrl":  f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}/edit",
+    })
 
 
 @app.route("/api/products")

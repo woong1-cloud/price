@@ -76,7 +76,27 @@ body {
   cursor: pointer;
 }
 .win-pill.on { display: inline-flex; }
+.promo-pill {
+  display: none; align-items: center; gap: 5px;
+  background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5;
+  font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+  cursor: pointer;
+}
+.promo-pill.on { display: inline-flex; }
 .ts { font-size: 0.68rem; color: #6b7280; }
+
+/* 프로모션 상태 배지 (가격 셀 내부) */
+.promo-badge {
+  display: inline-block; font-size: 0.58rem; font-weight: 700;
+  padding: 1px 5px; border-radius: 8px; margin-top: 3px; line-height: 1.4;
+  letter-spacing: 0; white-space: nowrap;
+}
+.promo-badge.ok    { background: #dcfce7; color: #15803d; }   /* 의도된 할인 */
+.promo-badge.viol  { background: #fee2e2; color: #b91c1c; }   /* 위반 */
+.promo-badge.miss  { background: #ffedd5; color: #c2410c; }   /* 할인 누락 */
+.promo-badge.wait  { background: #f1f5f9; color: #64748b; }   /* 대기(시작 전) */
+/* 위반 행 좌측 강조 바 */
+tr.promo-violation td.sticky-season { box-shadow: inset 3px 0 0 #dc2626; }
 
 /* ══════════════════════════════
    툴바
@@ -470,6 +490,9 @@ tbody tr:hover td.sticky-name { background: #f8fafc; }
     <span class="win-pill" id="win-pill" onclick="activateFilter('oflow')">
       ✅ <span id="win-n">0</span>건 자사몰 최저
     </span>
+    <span class="promo-pill" id="promo-pill" onclick="activateFilter('promoviol')">
+      🔴 <span id="promo-n">0</span>건 프로모션 위반
+    </span>
     <span class="ts" id="ts">로딩 중...</span>
   </div>
 </header>
@@ -491,6 +514,8 @@ tbody tr:hover td.sticky-name { background: #f8fafc; }
   <button class="tbtn" id="btn-sale" onclick="toggle('sale')">할인만</button>
   <button class="tbtn" id="btn-walert" onclick="toggle('walert')">⚠ 타채널이 낮은</button>
   <button class="tbtn" id="btn-oflow" onclick="toggle('oflow')">✅ 자사몰이 낮은</button>
+  <button class="tbtn" id="btn-promo" onclick="toggle('promo')" title="구글시트 프로모션 계획에 등록된 스타일만">🎯 프로모션 관리</button>
+  <button class="tbtn" id="btn-promoviol" onclick="toggle('promoviol')" title="계획과 어긋난 채널 할인만">🔴 위반만</button>
   <button class="tbtn" id="btn-watch" onclick="toggleWatch()">📌 관심목록</button>
 
   <div class="divider"></div>
@@ -600,7 +625,82 @@ let data    = [];
 let chList  = [];
 let sortCol = 'season';
 let sortDir = -1;
-const F = { nostock: false, sale: false, walert: false, oflow: false };
+const F = { nostock: false, sale: false, walert: false, oflow: false, promo: false, promoviol: false };
+
+/* ═══════════════════════════════
+   프로모션 계획 (구글시트)
+═══════════════════════════════ */
+let _promo = { channels: {}, lastFetch: 0, error: '', sheetUrl: '' };
+const PROMO_CH_ORDER = ['official', 'musinsa', 'zigzag', 'eland', 'naver'];
+
+// 오늘 날짜 (YYYY-MM-DD, 로컬/KST)
+function _todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// 기간 내 여부 (end 빈값 = 상시)
+function _inPeriod(promo, today) {
+  if (!promo) return false;
+  const s = promo.start || '';
+  const e = promo.end || '';
+  if (s && today < s) return false;
+  if (e && today > e) return false;
+  return true;
+}
+// 시작 전 여부
+function _beforePeriod(promo, today) {
+  return promo && promo.start && today < promo.start;
+}
+
+// 실제로 그 채널이 할인 중인지
+function _isDiscounting(ch) {
+  if (!ch || ch.isSoldOut) return false;
+  if (ch.saleRate > 0) return true;
+  if (ch.normalPrice && ch.price && ch.price < ch.normalPrice) return true;
+  return false;
+}
+
+/* 특정 상품·채널의 프로모션 상태 판정
+   반환: 'ok' | 'viol' | 'miss' | 'wait' | null(해당없음) */
+function promoStatus(p, chId) {
+  const code = p.styleCode;
+  if (!code) return null;
+  // 시트에 등록된(관리 대상) 스타일만 판정 — 미등록 스타일은 판단 안 함
+  if (!hasAnyPromo(p)) return null;
+  const today = _todayStr();
+  const chMap = _promo.channels[chId] || {};
+  const promo = chMap[code];
+
+  // 자사몰 '할인허용채널'로 이 채널이 면제되는지
+  const offPromo = (_promo.channels.official || {})[code];
+  const brandAllows = offPromo && _inPeriod(offPromo, today)
+                      && Array.isArray(offPromo.allow) && offPromo.allow.includes(chId);
+
+  const ch = p.channels[chId];
+  const discounting = _isDiscounting(ch);
+
+  if (discounting) {
+    if ((promo && _inPeriod(promo, today)) || brandAllows) return 'ok';   // 의도된 할인
+    return 'viol';                                                         // 위반(미등록/기간외 할인)
+  } else {
+    // 정상가
+    if (promo && _inPeriod(promo, today)) return 'miss';                  // 해야 할 할인 누락
+    if (_beforePeriod(promo, today))      return 'wait';                  // 시작 전
+    return null;
+  }
+}
+
+// 상품이 어느 채널에든 프로모션 등록돼 있나
+function hasAnyPromo(p) {
+  const code = p.styleCode;
+  if (!code) return false;
+  return PROMO_CH_ORDER.some(c => (_promo.channels[c] || {})[code]);
+}
+// 상품에 위반이 하나라도 있나
+function hasPromoViolation(p) {
+  return PROMO_CH_ORDER.some(c => promoStatus(p, c) === 'viol');
+}
 
 // 자사몰이 최저가인지 판별
 function isOfficialLowest(p) {
@@ -643,9 +743,15 @@ async function load() {
   document.getElementById('tbl').style.display = 'none';
 
   try {
-    const [pr, cr] = await Promise.all([fetch('/api/products'), fetch('/api/channels')]);
+    const [pr, cr, mr] = await Promise.all([
+      fetch('/api/products'),
+      fetch('/api/channels'),
+      fetch('/api/promotions').catch(() => null),
+    ]);
     data   = await pr.json();
     chList = await cr.json();
+    // 프로모션 계획 로드 (실패해도 대시보드는 동작)
+    try { if (mr) _promo = await mr.json(); } catch(e) { console.warn('promo load fail', e); }
     // 현재 연도 시즌 코드로 필터 초기화 (G1, G2, GA 등)
     const curCodes = [...new Set(data.map(p => p.season).filter(s => s && s.length === 2 && s[0] === CURRENT_LETTER))];
     seasonFilter = new Set(curCodes);
@@ -922,6 +1028,15 @@ function scrollAlert() {
 
 // 헤더 pill 클릭 → 해당 필터 활성화 + 가격차 정렬
 function activateFilter(key) {
+  if (key === 'promoviol') {
+    if (!F.promoviol) {
+      F.promoviol = true;
+      document.getElementById('btn-promoviol').classList.add('on');
+      render();
+    }
+    document.getElementById('table-outer').scrollIntoView({behavior:'smooth'});
+    return;
+  }
   if (!F[key]) {
     F[key] = true;
     const btnId = key === 'walert' ? 'btn-walert' : 'btn-oflow';
@@ -1077,6 +1192,10 @@ function render() {
     }
     if (F.walert && !p.hasAlert) return false;
     if (F.oflow  && !isOfficialLowest(p)) return false;
+    // 프로모션 필터 — 계획에 등록된 스타일만
+    if (F.promo && !hasAnyPromo(p)) return false;
+    // 위반만 필터
+    if (F.promoviol && !hasPromoViolation(p)) return false;
     // 관심목록 필터 — ON 시 저장된 코드만 표시
     if (watchActive && watchCodes.size > 0) {
       if (!watchCodes.has(p.styleCode)) return false;
@@ -1119,6 +1238,14 @@ function render() {
 
   document.getElementById('count').textContent = `${rows.length}개 / 전체 ${data.length}개`;
 
+  // 프로모션 위반 카운트 (전체 데이터 기준) → 헤더 pill
+  const violCount = data.filter(p => hasPromoViolation(p)).length;
+  const promoPill = document.getElementById('promo-pill');
+  if (promoPill) {
+    document.getElementById('promo-n').textContent = violCount;
+    promoPill.classList.toggle('on', violCount > 0);
+  }
+
   // 자사몰이 첫 번째 — 순서: 자사몰 | 무신사 지그재그 | 이랜드몰 | 네이버 | 최저가
   const ACTIVE_CHS = ['official', 'musinsa', 'zigzag', 'eland', 'naver'];
   // 각 채널의 그룹 구분선 (맨 첫 번째 td에 grp-sep 클래스 부여)
@@ -1141,6 +1268,11 @@ function render() {
       const cls     = isAlert ? 'is-alert' : isLow ? 'is-low' : '';
       const showNorm = ch.normalPrice && ch.normalPrice > ch.price;
 
+      // 프로모션 상태 배지
+      const st = promoStatus(p, id);
+      const PROMO_LABEL = { ok:'🟢 정상', viol:'🔴 위반', miss:'🟠 누락', wait:'⚪ 대기' };
+      const promoBadge = st ? `<div class="promo-badge ${st}">${PROMO_LABEL[st]}</div>` : '';
+
       return `<td class="price-cell${sepCls}">
         <div class="ch-price ${cls}">
           ${isLow ? '<span class="dot-low"></span>' : ''}
@@ -1148,6 +1280,7 @@ function render() {
         </div>
         ${showNorm ? `<div class="ch-normal">${fmt(ch.normalPrice)}원</div>` : ''}
         ${ch.saleRate > 0 ? `<span class="ch-rate">-${ch.saleRate}%</span>` : ''}
+        ${promoBadge}
       </td>`;
     }).join('');
 
@@ -1157,11 +1290,12 @@ function render() {
         <div class="best-ch"><span class="best-badge">${CH[p.lowestChannel]?.name || p.lowestChannel}</span></div>
       </td>` : `<td class="pc-empty grp-sep">—</td>`;
 
-    // 행 하이라이트: 빨간(타채널 더 낮음) / 초록(자사몰 최저)
+    // 행 하이라이트: 빨간(타채널 더 낮음) / 초록(자사몰 최저) / 프로모션 위반
     const rowCls = [
       allOut ? 'dim' : '',
       p.hasAlert          ? 'price-alert' : '',
       isOfficialLowest(p) ? 'price-win'   : '',
+      hasPromoViolation(p) ? 'promo-violation' : '',
     ].filter(Boolean).join(' ');
 
     return `<tr class="${rowCls}">
