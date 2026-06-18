@@ -1013,6 +1013,7 @@ _PROMO_CH_ALIAS = {
     "네이버": "naver",    "naver": "naver",
 }
 _PROMO_ALL_CH = ["official", "musinsa", "zigzag", "eland", "naver"]
+_PROMO_PERIOD_TAB = "기간할인 적용리스트"   # 전채널 동일 적용 마스터 리스트
 
 _promo_cache: dict = {}
 _promo_cache_time: float = 0.0
@@ -1034,8 +1035,24 @@ def _promo_norm_date(s: str) -> str:
     return ""
 
 
-def _parse_promo_csv(text: str, channel: str) -> dict:
-    """탭 CSV → {styleCode: {start, end, name, allow}}"""
+def _parse_ch_list(raw: str) -> list:
+    """'전채널' / '무신사,지그재그' 같은 셀 → 채널 id 리스트"""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    if "전채널" in raw or "전체" in raw:
+        return list(_PROMO_ALL_CH)
+    res = []
+    for t in re.split(r"[,/·\s]+", raw):
+        cid = _PROMO_CH_ALIAS.get(t.strip())
+        if cid and cid not in res:
+            res.append(cid)
+    return res
+
+
+def _parse_promo_csv(text: str, channel: str, is_period: bool = False) -> dict:
+    """탭 CSV → {styleCode: {start, end, name, allow, ...}}
+       is_period=True : 기간할인 적용리스트 (반영 채널/중복 외부채널 파싱)"""
     import csv as _csv, io as _io
     rows = list(_csv.reader(_io.StringIO(text)))
     if not rows:
@@ -1058,6 +1075,8 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
     i_disc  = col("할인가")
     i_coup  = col("쿠폰할인", "쿠폰")
     i_final = col("최종할인가(예측)", "최종할인가", "최종가")
+    i_apply = col("반영 채널", "반영채널")           # 기간할인 리스트 전용
+    i_extdup = col("중복 외부채널", "중복외부채널")   # 참고용 메모
 
     def _num(idx):
         """셀 → 정수 (콤마/원/% 제거). 비정상이면 0"""
@@ -1105,25 +1124,20 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
         end   = _promo_norm_date(row[i_end])   if 0 <= i_end   < len(row) else ""
         name  = (row[i_name].strip() if 0 <= i_name < len(row) else "")
         promo_name = (row[i_promo].strip() if 0 <= i_promo < len(row) else "")
-        # 할인허용채널 파싱 (자사몰 탭)
-        allow = [channel]
-        if 0 <= i_allow < len(row) and row[i_allow].strip():
-            raw = row[i_allow].strip()
-            if "전채널" in raw or "전체" in raw:
-                allow = list(_PROMO_ALL_CH)
-            else:
-                toks = re.split(r"[,/·\s]+", raw)
-                allow = [channel]
-                for t in toks:
-                    cid = _PROMO_CH_ALIAS.get(t.strip())
-                    if cid and cid not in allow:
-                        allow.append(cid)
+        # 할인허용채널 파싱 (자사몰 탭) — 기본 자기 채널
+        allow = _parse_ch_list(_cell(i_allow)) or [channel]
+        # 반영 채널 (기간할인 리스트) — 비우면 전채널
+        apply = _parse_ch_list(_cell(i_apply))
+        if is_period and not apply:
+            apply = list(_PROMO_ALL_CH)
         _normal = _num(i_norm)
         _rate   = _num(i_rate)
         _sale   = _num(i_disc)
         _final, _prate = _planned(_normal, _rate, _sale, _cell(i_coup), _num(i_final))
         out[code] = {"start": start, "end": end, "name": name,
                      "promo": promo_name, "allow": allow,
+                     "apply": apply,                 # 반영 채널 (기간할인)
+                     "extDup": _cell(i_extdup),      # 중복 외부채널 메모
                      "normalPrice": _normal,
                      "rate": _rate,
                      "salePrice": _sale,
@@ -1158,6 +1172,20 @@ def _fetch_promotions(force: bool = False) -> dict:
             result[ch] = {}
             errors.append(f"{tab}:{e}")
 
+    # 기간할인 적용리스트 (전채널 동일 적용)
+    try:
+        url = (
+            f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}"
+            f"/gviz/tq?tqx=out:csv&headers=1&sheet={urllib.parse.quote(_PROMO_PERIOD_TAB)}"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "spao-monitor/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            text = r.read().decode("utf-8")
+        result["_period"] = _parse_promo_csv(text, "_period", is_period=True)
+    except Exception as e:
+        result["_period"] = {}
+        errors.append(f"{_PROMO_PERIOD_TAB}:{e}")
+
     with _promo_lock:
         # 일부라도 읽혔으면 갱신 (전부 실패면 기존 캐시 유지)
         if any(result.values()) or not _promo_cache:
@@ -1180,11 +1208,13 @@ def api_promotions():
     """프로모션 계획표 (구글시트) — 채널별 {styleCode: {start,end,name,allow}}"""
     force = request.args.get("refresh") == "1"
     data = _fetch_promotions(force=force)
+    channels = {k: v for k, v in data.items() if k != "_period"}
     return jsonify({
-        "channels":  data,
-        "lastFetch": _promo_cache_time,
-        "error":     _promo_error,
-        "sheetUrl":  f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}/edit",
+        "channels":   channels,
+        "periodList": data.get("_period", {}),
+        "lastFetch":  _promo_cache_time,
+        "error":      _promo_error,
+        "sheetUrl":   f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}/edit",
     })
 
 

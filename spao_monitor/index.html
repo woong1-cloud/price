@@ -177,6 +177,38 @@ tr.promo-violation td.sticky-season { box-shadow: inset 3px 0 0 #dc2626; }
 .pm-viol-chip.viol { background:#fee2e2; color:#b91c1c; }
 .pm-empty-note { padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.8rem; background:#fff; border:1px solid var(--border); border-radius:10px; }
 
+/* 프로모션 서브탭 */
+.psubbar { display:flex; gap:6px; margin: 4px 0 14px; border-bottom:1px solid var(--border); }
+.psub-btn { border:none; background:none; cursor:pointer; font-size:0.78rem; font-weight:700; color:var(--text-muted); padding:7px 12px; border-bottom:2px solid transparent; }
+.psub-btn:hover { color:var(--text-sub); }
+.psub-btn.on { color:var(--text); border-bottom-color:#7c3aed; }
+
+/* 충돌 경고 배너 */
+.pm-conflict-banner { background:#fef2f2; border:1px solid #fca5a5; color:#b91c1c; border-radius:10px; padding:10px 14px; font-size:0.8rem; font-weight:700; margin-bottom:14px; }
+.pm-conflict-list { font-size:0.72rem; font-weight:500; color:#7f1d1d; margin-top:5px; word-break:break-all; }
+
+/* 매트릭스 */
+.mx-wrap { overflow-x:auto; border:0.5px solid var(--border); border-radius:10px; background:#fff; }
+.mx-table { width:100%; border-collapse:collapse; font-size:11.5px; min-width:680px; }
+.mx-table th { background:#f8fafc; font-weight:700; color:var(--text-sub); padding:8px 6px; text-align:center; position:sticky; top:0; }
+.mx-table td { border-top:0.5px solid #f1f3f5; padding:6px; }
+.mx-cell { text-align:center; }
+.mx-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 6px; border-radius:8px; white-space:nowrap; }
+.mx-badge.ok   { background:#dcfce7; color:#15803d; }
+.mx-badge.over { background:#fecaca; color:#991b1b; }
+.mx-badge.miss { background:#ffedd5; color:#c2410c; }
+.mx-badge.dup  { background:#ede9fe; color:#6d28d9; }
+.mx-na { color:#cbd5e1; }
+.mx-table tr.mx-conflict { background:#fef2f2; }
+.confmark { color:#dc2626; font-style:normal; }
+.mx-legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; font-size:11px; color:var(--text-muted); align-items:center; }
+.mx-legend span { display:inline-flex; align-items:center; gap:5px; }
+
+/* 위반 출처 태그 */
+.pm-src { display:inline-block; font-size:9.5px; font-weight:700; padding:1px 5px; border-radius:6px; }
+.pm-src.period { background:#ede9fe; color:#6d28d9; }
+.pm-src.chan { background:#e0f2fe; color:#0369a1; }
+
 /* ══════════════════════════════
    툴바
 ══════════════════════════════ */
@@ -720,10 +752,10 @@ const F = { nostock: false, sale: false, walert: false, oflow: false, promo: fal
 /* ═══════════════════════════════
    프로모션 계획 (구글시트)
 ═══════════════════════════════ */
-let _promo = { channels: {}, lastFetch: 0, error: '', sheetUrl: '' };
+let _promo = { channels: {}, periodList: {}, lastFetch: 0, error: '', sheetUrl: '' };
 const PROMO_CH_ORDER = ['official', 'musinsa', 'zigzag', 'eland', 'naver'];
 const PROMO_CH_NAME = { official:'자사몰', musinsa:'무신사', zigzag:'지그재그', eland:'이랜드몰', naver:'네이버' };
-const PROMO_LABEL = { ok:'🟢 정상', over:'🔴 과할인', viol:'🔴 위반', miss:'🟠 누락', wait:'⚪ 대기' };
+const PROMO_LABEL = { ok:'🟢 정상', over:'🔴 과할인', viol:'🔴 위반', miss:'🟠 누락', wait:'⚪ 대기', dup:'🟣 중복' };
 
 // 오늘 날짜 (YYYY-MM-DD, 로컬/KST)
 function _todayStr() {
@@ -812,26 +844,65 @@ function hasAnyPromo(p) {
   if (!code) return false;
   return PROMO_CH_ORDER.some(c => (_promo.channels[c] || {})[code]);
 }
-// 위반(과한 할인) = viol 또는 over
-function _isViolStatus(s) { return s === 'viol' || s === 'over'; }
+
+/* ── 기간할인 적용리스트 (전채널 동일 적용) ── */
+// 이 스타일이 기간할인 리스트에 활성(기간 내) 등록돼 있나
+function _periodActive(code) {
+  const e = (_promo.periodList || {})[code];
+  return e && _inPeriod(e, _todayStr()) ? e : null;
+}
+/* 기간할인 기준 채널 상태: 'ok'|'over'|'miss'|'dup'|null
+   - 반영채널: 할인 적용 → ok / 과할인 → over / 정상가 → miss
+   - 비반영채널: 할인 중이면 dup(중복 외부채널), 아니면 null */
+function periodStatus(p, chId) {
+  const e = _periodActive(p.styleCode);
+  if (!e) return null;
+  const apply = (e.apply && e.apply.length) ? e.apply : PROMO_CH_ORDER;
+  const ch = p.channels[chId];
+  const disc = _isDiscounting(ch);
+  if (apply.includes(chId)) {
+    if (disc) {
+      const planned = _plannedRate(e), actual = _actualRate(ch);
+      if (planned != null && actual != null && actual > planned + PROMO_RATE_TOL) return 'over';
+      return 'ok';
+    }
+    return 'miss';
+  }
+  return disc ? 'dup' : null;
+}
+// 채널 탭 + 기간할인 리스트에 동시 등록된 충돌 채널 목록 (없으면 null)
+function periodConflict(code) {
+  if (!(_promo.periodList || {})[code]) return null;
+  const chans = PROMO_CH_ORDER.filter(c => (_promo.channels[c] || {})[code]);
+  return chans.length ? chans : null;
+}
+/* 중앙 모니터링 통합 상태: 기간할인 활성이면 그 기준, 아니면 채널 계획 */
+function combinedStatus(p, chId) {
+  if (_periodActive(p.styleCode)) return periodStatus(p, chId);
+  return promoStatus(p, chId);
+}
+
+// 위반(과한 할인) = viol/over/dup, 누락 = miss
+function _isViolStatus(s) { return s === 'viol' || s === 'over' || s === 'dup'; }
 function hasPromoViolation(p) {
-  return PROMO_CH_ORDER.some(c => _isViolStatus(promoStatus(p, c)));
+  return PROMO_CH_ORDER.some(c => _isViolStatus(combinedStatus(p, c)));
 }
 
 /* 셀에 표시할 프로모션 정보 (상태 + 프로모션명 + 기간) */
 function promoInfo(p, chId) {
-  const status = promoStatus(p, chId);
+  const status = combinedStatus(p, chId);
   if (!status) return null;
   const code = p.styleCode;
+  const per = _periodActive(code);                    // 기간할인 우선
   const own = (_promo.channels[chId] || {})[code];   // 이 채널 자체 계획
   const off = (_promo.channels.official || {})[code]; // 자사몰(브랜드) 계획
-  // 판정 근거가 된 계획: 자기 채널 우선, 없으면 자사몰 계획(브랜드 전용 위반 등)
-  const ref = own || off || null;
+  const ref = per || own || off || null;
   return {
     status,
     name:  ref ? (ref.promo || '') : '',
     start: ref ? (ref.start || '') : '',
     end:   ref ? (ref.end   || '') : '',
+    isPeriod: !!per,
   };
 }
 
@@ -886,77 +957,207 @@ function _buildPromoGroups() {
 }
 
 // 위반 — 스타일별로 묶고, 위반 채널을 배열로 (한 스타일 = 한 행)
+// 중앙 모니터링: combinedStatus 기준 (채널 계획 + 기간할인 통합), 출처 태그 포함
 function _buildViolations() {
   const map = {};
   data.forEach(p => {
+    const per = _periodActive(p.styleCode);
     PROMO_CH_ORDER.forEach(ch => {
-      const st = promoStatus(p, ch);
-      if (st !== 'viol' && st !== 'over') return;
+      const st = combinedStatus(p, ch);
+      if (!_isViolStatus(st)) return;   // viol/over/dup만
       if (!map[p.styleCode]) {
         map[p.styleCode] = {
           code: p.styleCode, name: p.styleName,
           officialPrice: p.channels.official ? p.channels.official.price : 0,
+          source: per ? '전채널' : '채널별',
           chans: [],
         };
       }
       const chObj = p.channels[ch];
       const own = (_promo.channels[ch] || {})[p.styleCode];
       const off = (_promo.channels.official || {})[p.styleCode];
-      const ref = own || off;
+      const ref = per || own || off;
       map[p.styleCode].chans.push({
         channel: ch, type: st,
         actualRate: _actualRate(chObj), actualPrice: chObj ? chObj.price : 0,
-        plannedRate: _plannedRate(own || off),
+        plannedRate: _plannedRate(ref),
         promoName: ref ? (ref.promo || '') : '', start: ref ? ref.start : '', end: ref ? ref.end : '',
       });
     });
   });
-  // 과할인 우선 정렬, 그 다음 코드순
+  // 과할인/중복 우선 정렬, 그 다음 코드순
   return Object.values(map).sort((a,b) => {
-    const ao = a.chans.some(c=>c.type==='over') ? 0 : 1;
-    const bo = b.chans.some(c=>c.type==='over') ? 0 : 1;
+    const ao = a.chans.some(c=>c.type==='over'||c.type==='dup') ? 0 : 1;
+    const bo = b.chans.some(c=>c.type==='over'||c.type==='dup') ? 0 : 1;
     return ao - bo || (a.code||'').localeCompare(b.code||'');
   });
 }
 
+let promoSubTab = 'period';   // 'period'(전채널 기간할인) | 'channel'(채널별)
+
+function switchPromoSub(name) {
+  promoSubTab = name;
+  const a = document.getElementById('psub-period'), b = document.getElementById('psub-channel');
+  if (a) a.classList.toggle('on', name === 'period');
+  if (b) b.classList.toggle('on', name === 'channel');
+  renderPromoBody();
+}
+
 function renderPromoView() {
   const pad = document.getElementById('promo-pad');
-  const today = _todayStr();
-  if (!_promo || !_promo.channels || PROMO_CH_ORDER.every(c => Object.keys(_promo.channels[c]||{}).length === 0)) {
+  const hasCh = PROMO_CH_ORDER.some(c => Object.keys(_promo.channels[c]||{}).length > 0);
+  const hasPeriod = Object.keys(_promo.periodList||{}).length > 0;
+  if (!hasCh && !hasPeriod) {
     pad.innerHTML = `<div class="pm-empty-note">구글시트에 등록된 프로모션이 없습니다.<br>
       <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 열기 →</a></div>`;
     return;
   }
+  const sheetTime = _promo.lastFetch ? new Date(_promo.lastFetch*1000).toLocaleString('ko-KR',{hour12:false}) : '—';
+  pad.innerHTML = `
+    <div class="promo-section-title">📋 프로모션 관리
+      <span class="promo-sub">· 시트 동기화 ${sheetTime} · <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 편집 →</a></span>
+    </div>
+    <div class="psubbar">
+      <button class="psub-btn" id="psub-period" onclick="switchPromoSub('period')">🏷 전채널 기간할인</button>
+      <button class="psub-btn" id="psub-channel" onclick="switchPromoSub('channel')">🗂 채널별 프로모션</button>
+    </div>
+    <div id="promo-body"></div>`;
+  document.getElementById('psub-' + promoSubTab).classList.add('on');
+  renderPromoBody();
+}
+
+function renderPromoBody() {
+  const body = document.getElementById('promo-body');
+  if (!body) return;
+  body.innerHTML = promoSubTab === 'period' ? buildPeriodSubview() : buildChannelSubview();
+}
+
+/* ── 전채널 기간할인: 스타일 × 채널 매트릭스 ── */
+function buildPeriodSubview() {
+  const today = _todayStr();
+  const list = _promo.periodList || {};
+  const codes = Object.keys(list);
+  if (!codes.length) {
+    return `<div class="pm-empty-note">‘기간할인 적용리스트’ 시트에 등록된 스타일이 없습니다.<br>
+      <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 열기 →</a></div>`;
+  }
+  const dataByCode = {};
+  data.forEach(p => { if (p.styleCode) dataByCode[p.styleCode] = p; });
+
+  let okN=0, overN=0, missN=0, dupN=0, targetN=0;
+  const conflicts = [];
+  const rows = codes.map(code => {
+    const e = list[code];
+    const p = dataByCode[code];
+    const active = _inPeriod(e, today);
+    const apply = (e.apply && e.apply.length) ? e.apply : PROMO_CH_ORDER;
+    const conf = periodConflict(code);
+    if (conf) conflicts.push({ code, name: e.name, chans: conf });
+    const cells = PROMO_CH_ORDER.map(ch => {
+      if (!apply.includes(ch)) return { ch, st: 'na' };
+      if (!active || !p) return { ch, st: 'inactive' };
+      const st = periodStatus(p, ch);
+      if (active) {
+        if (st==='ok') okN++; else if (st==='over') overN++;
+        else if (st==='miss') missN++; else if (st==='dup') dupN++;
+        targetN++;
+      }
+      return { ch, st, actual: p ? _actualRate(p.channels[ch]) : null };
+    });
+    // 비반영 채널 중복 감지 (dup)
+    PROMO_CH_ORDER.forEach(ch => {
+      if (apply.includes(ch)) return;
+      if (active && p && periodStatus(p, ch) === 'dup') { dupN++; }
+    });
+    return { code, name: e.name || (p?p.styleName:''), e, active, apply, conf, cells, p };
+  });
+
+  const applyRate = targetN ? Math.round(okN / targetN * 100) : 0;
+
+  // KPI
+  const kpi = `<div class="pm-cards" style="grid-template-columns:repeat(5,1fr); margin-bottom:14px">
+    <div class="pm-card"><div class="pm-card-row"><span>대상 스타일</span></div><div style="font-size:22px;font-weight:700">${codes.length}</div></div>
+    <div class="pm-card"><div class="pm-card-row"><span>적용률</span></div><div style="font-size:22px;font-weight:700;color:#15803d">${applyRate}%</div></div>
+    <div class="pm-card"><div class="pm-card-row"><span>🟠 미적용</span></div><div style="font-size:22px;font-weight:700;color:#c2410c">${missN}</div></div>
+    <div class="pm-card"><div class="pm-card-row"><span>🔴 과할인</span></div><div style="font-size:22px;font-weight:700;color:#b91c1c">${overN}</div></div>
+    <div class="pm-card"><div class="pm-card-row"><span>🟣 중복</span></div><div style="font-size:22px;font-weight:700;color:#7c3aed">${dupN}</div></div>
+  </div>`;
+
+  // 충돌 경고 배너
+  let banner = '';
+  if (conflicts.length) {
+    const items = conflicts.map(c => `${esc(c.code)}(${c.chans.map(x=>PROMO_CH_NAME[x]).join('·')})`).join(', ');
+    banner = `<div class="pm-conflict-banner">⚠ 중복 등록 ${conflicts.length}건 — 채널 탭과 기간할인 리스트에 동시 등록됨. 한 곳만 남겨주세요.
+      <div class="pm-conflict-list">${items}</div></div>`;
+  }
+
+  // 매트릭스
+  const cellHtml = (cell) => {
+    if (cell.st === 'na') return `<td class="mx-cell"><span class="mx-na">—</span></td>`;
+    if (cell.st === 'inactive') return `<td class="mx-cell"><span class="mx-na">·</span></td>`;
+    if (!cell.st) return `<td class="mx-cell"><span class="mx-na">—</span></td>`;
+    const label = { ok:'적용', over:`과 ${cell.actual}%`, miss:'미적용', dup:`중복 ${cell.actual}%` }[cell.st] || cell.st;
+    return `<td class="mx-cell"><span class="mx-badge ${cell.st}">${label}</span></td>`;
+  };
+  const head = `<tr><th style="text-align:left">스타일</th><th>계획</th>` +
+    PROMO_CH_ORDER.map(ch=>`<th style="color:${CH[ch].color}">${PROMO_CH_NAME[ch]}</th>`).join('') + `</tr>`;
+  const tbody = rows.map(r => {
+    const pstate = _periodState(r.e.start, r.e.end, today);
+    const planned = _plannedRate(r.e);
+    const confMark = r.conf ? `<i class="confmark" title="채널 탭과 중복 등록">⚠</i> ` : '';
+    return `<tr class="${r.conf?'mx-conflict':''}">
+      <td style="text-align:left">
+        <div style="font-family:monospace;font-size:11px">${confMark}${esc(r.code)}</div>
+        <div style="color:#9ca3af;font-size:11px">${esc(r.name||'')} · <span class="pm-period ${pstate}">${_periodLabel(pstate)}</span> ${r.e.start||'?'}~${r.e.end||'상시'}</div>
+      </td>
+      <td style="color:#6b7280">${planned!=null?planned+'%':'—'}</td>
+      ${r.cells.map(cellHtml).join('')}
+    </tr>`;
+  }).join('');
+
+  const legend = `<div class="mx-legend">
+    <span><span class="mx-badge ok">적용</span> 계획대로 할인</span>
+    <span><span class="mx-badge miss">미적용</span> 할인 빠짐</span>
+    <span><span class="mx-badge over">과 N%</span> 계획보다 더 할인</span>
+    <span><span class="mx-badge dup">중복 N%</span> 반영 대상 아닌데 할인</span>
+    <span><span class="mx-na">—</span> 반영 채널 아님</span>
+  </div>`;
+
+  return `${banner}${kpi}
+    <div class="mx-wrap"><table class="mx-table"><thead>${head}</thead><tbody>${tbody}</tbody></table></div>
+    ${legend}`;
+}
+
+/* ── 채널별 프로모션: 카드(중앙 합산) + 위반 테이블 + 채널 상세 ── */
+function buildChannelSubview() {
+  const today = _todayStr();
   const groups = _buildPromoGroups();
   const viols = _buildViolations();
 
-  // ── 데이터 신선도 ──
-  const sheetTime = _promo.lastFetch ? new Date(_promo.lastFetch*1000).toLocaleString('ko-KR',{hour12:false}) : '—';
-
-  // ── 채널별 위반 집계 (중앙 모니터링: 전체 관리대상 중 이 채널이 어긴 수) ──
-  const violByCh = {};
-  PROMO_CH_ORDER.forEach(c => violByCh[c] = 0);
+  // 채널별 위반(과함)·누락 집계 — combinedStatus 기준 (채널 + 기간할인 합산)
+  const violByCh = {}, missByCh = {};
+  PROMO_CH_ORDER.forEach(c => { violByCh[c]=0; missByCh[c]=0; });
   data.forEach(p => PROMO_CH_ORDER.forEach(c => {
-    if (_isViolStatus(promoStatus(p, c))) violByCh[c]++;
+    const s = combinedStatus(p, c);
+    if (_isViolStatus(s)) violByCh[c]++;
+    else if (s === 'miss') missByCh[c]++;
   }));
 
-  // ── ① 채널 요약 카드 ──
+  // ① 채널 요약 카드 (위반/누락 2지표)
   let cards = '';
   PROMO_CH_ORDER.forEach(ch => {
     const gs = groups[ch] || [];
     const active = gs.filter(g => _periodState(g.start,g.end,today)==='active').length;
-    const styleCount = gs.reduce((n,g)=>n+g.styles.length,0);
-    const violCount = violByCh[ch];   // 전체 기준 위반 (위반 테이블과 일치)
     const color = CH[ch]?.color || '#888';
     cards += `<div class="pm-card">
       <div class="pm-card-head"><span class="pm-card-dot" style="background:${color}"></span>${PROMO_CH_NAME[ch]}</div>
       <div class="pm-card-row"><span>진행중 프로모션</span><b>${active}건</b></div>
-      <div class="pm-card-row"><span>등록 스타일</span><b>${styleCount}개</b></div>
-      <div class="pm-card-row viol"><span>🔴 위반</span><b>${violCount}건</b></div>
+      <div class="pm-card-row viol"><span>🔴 위반(과함)</span><b>${violByCh[ch]}건</b></div>
+      <div class="pm-card-row"><span style="color:#c2410c">🟠 누락(안함)</span><b style="color:#c2410c">${missByCh[ch]}건</b></div>
     </div>`;
   });
 
-  // ── ② 위반 점검 테이블 (스타일별 1행, 위반 채널 칩) ──
+  // ② 위반 점검 테이블
   let violTable;
   const violChanCount = viols.reduce((n,v)=>n+v.chans.length,0);
   if (viols.length === 0) {
@@ -965,21 +1166,18 @@ function renderPromoView() {
     const body = viols.map(v => {
       const chips = v.chans.map(c => {
         const color = CH[c.channel]?.color || '#888';
-        const typeTxt = c.type === 'over' ? '과할인' : '위반';
+        const typeTxt = c.type === 'over' ? '과할인' : c.type === 'dup' ? '중복' : '위반';
         const plan = c.plannedRate != null ? `계획 ${c.plannedRate}%` : '계획 미정';
         const tip = `${PROMO_CH_NAME[c.channel]} · 실제 ${c.actualRate}% (${fmt(c.actualPrice)}원) · ${plan}` +
                     (c.promoName ? ` · ${c.promoName}` : '');
-        return `<span class="pm-viol-chip ${c.type}" title="${esc(tip)}"
-                  style="border-left:3px solid ${color}">
-                  ${PROMO_CH_NAME[c.channel]} ${c.actualRate}% <b>${typeTxt}</b>
-                </span>`;
+        return `<span class="pm-viol-chip ${c.type}" title="${esc(tip)}" style="border-left:3px solid ${color}">${PROMO_CH_NAME[c.channel]} ${c.actualRate}% <b>${typeTxt}</b></span>`;
       }).join(' ');
-      // 대표 프로모션명·기간 (첫 위반 채널 기준)
       const ref = v.chans[0];
       const period = (ref.start||'?') + '~' + (ref.end||'상시');
       const promoTxt = ref.promoName ? `${esc(ref.promoName)}<br><span style="color:#9ca3af;font-size:.65rem">${period}</span>` : `<span style="color:#9ca3af">${period}</span>`;
+      const srcTag = `<span class="pm-src ${v.source==='전채널'?'period':'chan'}">${v.source}</span>`;
       return `<tr>
-        <td class="vt-code">${esc(v.code)}</td>
+        <td class="vt-code">${srcTag}<br>${esc(v.code)}</td>
         <td>${esc(v.name||'')}</td>
         <td>${chips}</td>
         <td>${promoTxt}</td>
@@ -987,11 +1185,11 @@ function renderPromoView() {
       </tr>`;
     }).join('');
     violTable = `<table class="pm-viol-table">
-      <thead><tr><th>스타일코드</th><th>스타일명</th><th>위반 채널 (실제할인 · 유형)</th><th>프로모션(기간)</th><th>자사몰가</th></tr></thead>
+      <thead><tr><th>출처·스타일</th><th>스타일명</th><th>위반 채널 (실제할인 · 유형)</th><th>프로모션(기간)</th><th>자사몰가</th></tr></thead>
       <tbody>${body}</tbody></table>`;
   }
 
-  // ── ③ 채널별 프로모션 상세 ──
+  // ③ 채널별 상세
   let detail = '';
   PROMO_CH_ORDER.forEach(ch => {
     const gs = groups[ch] || [];
@@ -1023,18 +1221,12 @@ function renderPromoView() {
     });
   });
 
-  pad.innerHTML = `
-    <div class="promo-section-title">📋 채널별 프로모션 현황
-      <span class="promo-sub">· 시트 동기화 ${sheetTime} · <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 편집 →</a></span>
-    </div>
+  return `
     <div class="pm-cards">${cards}</div>
-
     <div class="promo-section-title">🔴 위반 점검 <span class="promo-sub">계획과 다른 할인 · ${viols.length}개 스타일 / ${violChanCount}건</span></div>
     ${violTable}
-
     <div class="promo-section-title">🗂 채널별 상세 <span class="promo-sub">프로모션명별 스타일 (클릭하여 펼치기)</span></div>
-    ${detail}
-  `;
+    ${detail}`;
 }
 
 // 자사몰이 최저가인지 판별
