@@ -1144,9 +1144,11 @@ def _fetch_promotions(force: bool = False) -> dict:
     errors = []
     for ch, tab in _PROMO_TABS.items():
         try:
+            # headers=1 : 전부 텍스트 열일 때 gviz가 헤더 행을 여러 줄로
+            # 잘못 합치는 문제 방지 (헤더를 정확히 1행으로 강제)
             url = (
                 f"https://docs.google.com/spreadsheets/d/{_PROMO_SHEET_ID}"
-                f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
+                f"/gviz/tq?tqx=out:csv&headers=1&sheet={urllib.parse.quote(tab)}"
             )
             req = urllib.request.Request(url, headers={"User-Agent": "spao-monitor/1.0"})
             with urllib.request.urlopen(req, timeout=10) as r:
