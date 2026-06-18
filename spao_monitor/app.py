@@ -1052,6 +1052,21 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
     i_start = col("시작일")
     i_end   = col("종료일")
     i_allow = col("할인허용채널")   # 자사몰 탭 전용 (없으면 -1)
+    i_promo = col("프로모션명", "프로모션", "행사명")   # 없으면 -1
+    i_norm  = col("정상가")
+    i_rate  = col("할인율")
+    i_disc  = col("할인가")
+
+    def _num(idx):
+        """셀 → 정수 (콤마/원/% 제거). 비정상이면 0"""
+        if idx < 0 or idx >= len(row):
+            return 0
+        s = re.sub(r"[^\d.]", "", row[idx] or "")
+        try:
+            return int(float(s)) if s else 0
+        except Exception:
+            return 0
+
     out: dict = {}
     for row in rows[1:]:
         if i_code < 0 or i_code >= len(row):
@@ -1062,6 +1077,7 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
         start = _promo_norm_date(row[i_start]) if 0 <= i_start < len(row) else ""
         end   = _promo_norm_date(row[i_end])   if 0 <= i_end   < len(row) else ""
         name  = (row[i_name].strip() if 0 <= i_name < len(row) else "")
+        promo_name = (row[i_promo].strip() if 0 <= i_promo < len(row) else "")
         # 할인허용채널 파싱 (자사몰 탭)
         allow = [channel]
         if 0 <= i_allow < len(row) and row[i_allow].strip():
@@ -1075,7 +1091,11 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
                     cid = _PROMO_CH_ALIAS.get(t.strip())
                     if cid and cid not in allow:
                         allow.append(cid)
-        out[code] = {"start": start, "end": end, "name": name, "allow": allow}
+        out[code] = {"start": start, "end": end, "name": name,
+                     "promo": promo_name, "allow": allow,
+                     "normalPrice": _num(i_norm),
+                     "rate": _num(i_rate),
+                     "salePrice": _num(i_disc)}
     return out
 
 

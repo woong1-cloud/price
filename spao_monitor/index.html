@@ -92,11 +92,90 @@ body {
   letter-spacing: 0; white-space: nowrap;
 }
 .promo-badge.ok    { background: #dcfce7; color: #15803d; }   /* 의도된 할인 */
+.promo-badge.over  { background: #fecaca; color: #991b1b; }   /* 과할인 */
 .promo-badge.viol  { background: #fee2e2; color: #b91c1c; }   /* 위반 */
 .promo-badge.miss  { background: #ffedd5; color: #c2410c; }   /* 할인 누락 */
 .promo-badge.wait  { background: #f1f5f9; color: #64748b; }   /* 대기(시작 전) */
+.promo-name {
+  font-size: 0.56rem; color: #6b7280; margin-top: 2px; line-height: 1.3;
+  max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* 위반 행 좌측 강조 바 */
 tr.promo-violation td.sticky-season { box-shadow: inset 3px 0 0 #dc2626; }
+
+/* ══════════════════════════════
+   탭 전환 바
+══════════════════════════════ */
+.tabbar {
+  flex-shrink: 0; display: flex; align-items: flex-end; gap: 4px;
+  background: #fff; border-bottom: 1px solid var(--border);
+  padding: 0 20px; height: 38px; z-index: 198;
+}
+.tab-btn {
+  border: none; background: none; cursor: pointer;
+  font-size: 0.82rem; font-weight: 600; color: var(--text-muted);
+  padding: 8px 14px; border-bottom: 2px solid transparent; transition: all .12s;
+}
+.tab-btn:hover { color: var(--text-sub); }
+.tab-btn.on { color: var(--text); border-bottom-color: #111827; }
+
+/* ══════════════════════════════
+   프로모션 관리 뷰
+══════════════════════════════ */
+.promo-outer { flex: 1; overflow-y: auto; background: var(--bg); }
+.promo-pad { padding: 16px 20px 40px; max-width: 1400px; }
+.promo-section-title {
+  font-size: 0.85rem; font-weight: 800; color: var(--text); margin: 18px 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.promo-section-title:first-child { margin-top: 0; }
+.promo-sub { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); }
+
+/* 채널 요약 카드 */
+.pm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.pm-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; box-shadow: var(--shadow);
+}
+.pm-card-head { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 0.82rem; margin-bottom: 8px; }
+.pm-card-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.pm-card-row { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-sub); padding: 2px 0; }
+.pm-card-row b { font-weight: 700; }
+.pm-card-row.viol b { color: #b91c1c; }
+
+/* 프로모션 그룹 (채널별 상세) */
+.pm-group { background: #fff; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+.pm-group-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+  font-size: 0.78rem; font-weight: 700; background: #fafbfc;
+}
+.pm-group-head:hover { background: #f3f4f6; }
+.pm-ch-tag { font-size: 0.65rem; font-weight: 800; padding: 2px 7px; border-radius: 10px; color: #fff; }
+.pm-period { font-size: 0.68rem; color: var(--text-muted); font-weight: 500; }
+.pm-period.active { color: #15803d; font-weight: 700; }
+.pm-period.ended  { color: #9ca3af; }
+.pm-period.upcoming { color: #2563eb; }
+.pm-group-counts { margin-left: auto; display: flex; gap: 5px; }
+.pm-mini { font-size: 0.62rem; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
+.pm-mini.ok { background:#dcfce7; color:#15803d; }
+.pm-mini.viol { background:#fee2e2; color:#b91c1c; }
+.pm-mini.miss { background:#ffedd5; color:#c2410c; }
+.pm-group-body { display: none; padding: 6px 14px 12px; }
+.pm-group.open .pm-group-body { display: block; }
+.pm-style-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 0.72rem; border-top: 1px dashed #eef0f3; }
+.pm-style-row .code { font-family: monospace; color: var(--text-sub); min-width: 110px; }
+.pm-style-row .nm { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 위반 점검 테이블 */
+.pm-viol-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.pm-viol-table th, .pm-viol-table td { padding: 8px 10px; font-size: 0.74rem; text-align: left; border-bottom: 1px solid #f1f3f5; }
+.pm-viol-table th { background: #f8fafc; font-weight: 700; color: var(--text-sub); position: sticky; top: 0; }
+.pm-viol-table tr:hover td { background: #fef9f9; }
+.pm-viol-table .vt-code { font-family: monospace; }
+.pm-viol-chip { display: inline-block; font-size: 0.62rem; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin: 1px; }
+.pm-viol-chip.over { background:#fecaca; color:#991b1b; }
+.pm-viol-chip.viol { background:#fee2e2; color:#b91c1c; }
+.pm-empty-note { padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.8rem; background:#fff; border:1px solid var(--border); border-radius:10px; }
 
 /* ══════════════════════════════
    툴바
@@ -497,7 +576,13 @@ tbody tr:hover td.sticky-name { background: #f8fafc; }
   </div>
 </header>
 
-<!-- ══ 툴바 ══ -->
+<!-- ══ 탭 전환 ══ -->
+<div class="tabbar" id="tabbar">
+  <button class="tab-btn on" id="tab-price" onclick="switchTab('price')">📊 가격비교</button>
+  <button class="tab-btn" id="tab-promo" onclick="switchTab('promo')">🎯 프로모션 관리</button>
+</div>
+
+<!-- ══ 툴바 (가격비교 전용) ══ -->
 <div class="toolbar" id="toolbar">
   <div class="search">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -603,6 +688,11 @@ tbody tr:hover td.sticky-name { background: #f8fafc; }
   </div>
 </div>
 
+<!-- ══ 프로모션 관리 뷰 ══ -->
+<div class="promo-outer" id="promo-outer" style="display:none">
+  <div class="promo-pad" id="promo-pad"></div>
+</div>
+
 <script>
 /* ═══════════════════════════════
    상수 & 상태
@@ -632,6 +722,8 @@ const F = { nostock: false, sale: false, walert: false, oflow: false, promo: fal
 ═══════════════════════════════ */
 let _promo = { channels: {}, lastFetch: 0, error: '', sheetUrl: '' };
 const PROMO_CH_ORDER = ['official', 'musinsa', 'zigzag', 'eland', 'naver'];
+const PROMO_CH_NAME = { official:'자사몰', musinsa:'무신사', zigzag:'지그재그', eland:'이랜드몰', naver:'네이버' };
+const PROMO_LABEL = { ok:'🟢 정상', over:'🔴 과할인', viol:'🔴 위반', miss:'🟠 누락', wait:'⚪ 대기' };
 
 // 오늘 날짜 (YYYY-MM-DD, 로컬/KST)
 function _todayStr() {
@@ -660,33 +752,57 @@ function _isDiscounting(ch) {
   if (ch.normalPrice && ch.price && ch.price < ch.normalPrice) return true;
   return false;
 }
+// 실제 할인율(%) — saleRate 우선, 없으면 정가 대비 계산
+function _actualRate(ch) {
+  if (!ch || ch.isSoldOut) return null;
+  if (ch.saleRate > 0) return ch.saleRate;
+  if (ch.normalPrice && ch.price && ch.price < ch.normalPrice)
+    return Math.round((1 - ch.price / ch.normalPrice) * 100);
+  return 0;
+}
+// 계획 할인율(%) — 할인율 우선, 없으면 정상가/할인가로 계산 (없으면 null=미정)
+function _plannedRate(entry) {
+  if (!entry) return null;
+  if (entry.rate > 0) return entry.rate;
+  if (entry.normalPrice > 0 && entry.salePrice > 0 && entry.salePrice < entry.normalPrice)
+    return Math.round((1 - entry.salePrice / entry.normalPrice) * 100);
+  return null;
+}
+const PROMO_RATE_TOL = 2;   // 과할인 판정 허용 오차 (%p) — 쿠폰 등 변동 흡수
 
 /* 특정 상품·채널의 프로모션 상태 판정
-   반환: 'ok' | 'viol' | 'miss' | 'wait' | null(해당없음) */
+   반환: 'ok' | 'over' | 'viol' | 'miss' | 'wait' | null(해당없음)
+   - over : 과할인 (계획 할인율보다 실제가 더 큼)
+   - viol : 미계획/기간외 할인
+   - miss : 계획 기간인데 정상가 (할인 누락)
+   - wait : 시작 전 */
 function promoStatus(p, chId) {
   const code = p.styleCode;
   if (!code) return null;
-  // 시트에 등록된(관리 대상) 스타일만 판정 — 미등록 스타일은 판단 안 함
-  if (!hasAnyPromo(p)) return null;
+  if (!hasAnyPromo(p)) return null;   // 시트 미등록 스타일은 판단 안 함
   const today = _todayStr();
-  const chMap = _promo.channels[chId] || {};
-  const promo = chMap[code];
-
-  // 자사몰 '할인허용채널'로 이 채널이 면제되는지
+  const promo = (_promo.channels[chId] || {})[code];   // 이 채널 계획
   const offPromo = (_promo.channels.official || {})[code];
   const brandAllows = offPromo && _inPeriod(offPromo, today)
                       && Array.isArray(offPromo.allow) && offPromo.allow.includes(chId);
 
   const ch = p.channels[chId];
   const discounting = _isDiscounting(ch);
+  const ownActive = promo && _inPeriod(promo, today);
 
   if (discounting) {
-    if ((promo && _inPeriod(promo, today)) || brandAllows) return 'ok';   // 의도된 할인
-    return 'viol';                                                         // 위반(미등록/기간외 할인)
+    if (ownActive || brandAllows) {
+      // 계획된 할인 — 과할인 여부 검사
+      const ref = ownActive ? promo : offPromo;
+      const planned = _plannedRate(ref);
+      const actual  = _actualRate(ch);
+      if (planned != null && actual != null && actual > planned + PROMO_RATE_TOL) return 'over';
+      return 'ok';
+    }
+    return 'viol';   // 미계획/기간외 할인
   } else {
-    // 정상가
-    if (promo && _inPeriod(promo, today)) return 'miss';                  // 해야 할 할인 누락
-    if (_beforePeriod(promo, today))      return 'wait';                  // 시작 전
+    if (ownActive) return 'miss';
+    if (_beforePeriod(promo, today)) return 'wait';
     return null;
   }
 }
@@ -697,9 +813,203 @@ function hasAnyPromo(p) {
   if (!code) return false;
   return PROMO_CH_ORDER.some(c => (_promo.channels[c] || {})[code]);
 }
-// 상품에 위반이 하나라도 있나
+// 위반(과한 할인) = viol 또는 over
+function _isViolStatus(s) { return s === 'viol' || s === 'over'; }
 function hasPromoViolation(p) {
-  return PROMO_CH_ORDER.some(c => promoStatus(p, c) === 'viol');
+  return PROMO_CH_ORDER.some(c => _isViolStatus(promoStatus(p, c)));
+}
+
+/* 셀에 표시할 프로모션 정보 (상태 + 프로모션명 + 기간) */
+function promoInfo(p, chId) {
+  const status = promoStatus(p, chId);
+  if (!status) return null;
+  const code = p.styleCode;
+  const own = (_promo.channels[chId] || {})[code];   // 이 채널 자체 계획
+  const off = (_promo.channels.official || {})[code]; // 자사몰(브랜드) 계획
+  // 판정 근거가 된 계획: 자기 채널 우선, 없으면 자사몰 계획(브랜드 전용 위반 등)
+  const ref = own || off || null;
+  return {
+    status,
+    name:  ref ? (ref.promo || '') : '',
+    start: ref ? (ref.start || '') : '',
+    end:   ref ? (ref.end   || '') : '',
+  };
+}
+
+/* ═══════════════════════════════
+   탭 전환 + 프로모션 관리 뷰
+═══════════════════════════════ */
+let currentTab = 'price';
+
+function switchTab(name) {
+  currentTab = name;
+  document.getElementById('tab-price').classList.toggle('on', name === 'price');
+  document.getElementById('tab-promo').classList.toggle('on', name === 'promo');
+  const priceEls = ['toolbar','watch-bar','alert-bar','win-bar','table-outer'];
+  const showPrice = name === 'price';
+  priceEls.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = showPrice ? '' : 'none'; });
+  document.getElementById('promo-outer').style.display = showPrice ? 'none' : 'block';
+  if (name === 'promo') renderPromoView();
+}
+
+function _periodState(start, end, today) {
+  if (start && today < start) return 'upcoming';
+  if (end && today > end) return 'ended';
+  return 'active';
+}
+function _periodLabel(state) {
+  return state === 'active' ? '진행중' : state === 'upcoming' ? '예정' : '종료';
+}
+
+// 채널별 프로모션 그룹 (프로모션명으로 묶음)
+function _buildPromoGroups() {
+  const dataByCode = {};
+  data.forEach(p => { if (p.styleCode) dataByCode[p.styleCode] = p; });
+  const result = {};
+  PROMO_CH_ORDER.forEach(ch => {
+    const entries = _promo.channels[ch] || {};
+    const groups = {};
+    Object.keys(entries).forEach(code => {
+      const e = entries[code];
+      const gname = e.promo || '(이름 미입력)';
+      if (!groups[gname]) groups[gname] = { name: gname, start: e.start, end: e.end, styles: [], counts: {ok:0,over:0,viol:0,miss:0,wait:0} };
+      const g = groups[gname];
+      if (e.start && (!g.start || e.start < g.start)) g.start = e.start;
+      if (e.end   && (!g.end   || e.end   > g.end))   g.end = e.end;
+      const p = dataByCode[code];
+      const st = p ? promoStatus(p, ch) : null;
+      if (st) g.counts[st] = (g.counts[st] || 0) + 1;
+      g.styles.push({ code, name: e.name || (p ? p.styleName : ''), status: st, rate: e.rate });
+    });
+    result[ch] = Object.values(groups).sort((a,b) => (a.start||'').localeCompare(b.start||''));
+  });
+  return result;
+}
+
+// 위반 행 (style × channel)
+function _buildViolations() {
+  const rows = [];
+  data.forEach(p => {
+    PROMO_CH_ORDER.forEach(ch => {
+      const st = promoStatus(p, ch);
+      if (st !== 'viol' && st !== 'over') return;
+      const chObj = p.channels[ch];
+      const own = (_promo.channels[ch] || {})[p.styleCode];
+      const off = (_promo.channels.official || {})[p.styleCode];
+      const ref = own || off;
+      rows.push({
+        code: p.styleCode, name: p.styleName, channel: ch, type: st,
+        actualRate: _actualRate(chObj), actualPrice: chObj ? chObj.price : 0,
+        plannedRate: _plannedRate(own || off),
+        promoName: ref ? (ref.promo || '') : '', start: ref ? ref.start : '', end: ref ? ref.end : '',
+        officialPrice: p.channels.official ? p.channels.official.price : 0,
+        link: chObj ? chObj.link : '#',
+      });
+    });
+  });
+  return rows.sort((a,b) => (a.code||'').localeCompare(b.code||''));
+}
+
+function renderPromoView() {
+  const pad = document.getElementById('promo-pad');
+  const today = _todayStr();
+  if (!_promo || !_promo.channels || PROMO_CH_ORDER.every(c => Object.keys(_promo.channels[c]||{}).length === 0)) {
+    pad.innerHTML = `<div class="pm-empty-note">구글시트에 등록된 프로모션이 없습니다.<br>
+      <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 열기 →</a></div>`;
+    return;
+  }
+  const groups = _buildPromoGroups();
+  const viols = _buildViolations();
+
+  // ── 데이터 신선도 ──
+  const sheetTime = _promo.lastFetch ? new Date(_promo.lastFetch*1000).toLocaleString('ko-KR',{hour12:false}) : '—';
+
+  // ── ① 채널 요약 카드 ──
+  let cards = '';
+  PROMO_CH_ORDER.forEach(ch => {
+    const gs = groups[ch] || [];
+    const active = gs.filter(g => _periodState(g.start,g.end,today)==='active').length;
+    const styleCount = gs.reduce((n,g)=>n+g.styles.length,0);
+    const violCount = gs.reduce((n,g)=>n+(g.counts.viol||0)+(g.counts.over||0),0);
+    const color = CH[ch]?.color || '#888';
+    cards += `<div class="pm-card">
+      <div class="pm-card-head"><span class="pm-card-dot" style="background:${color}"></span>${PROMO_CH_NAME[ch]}</div>
+      <div class="pm-card-row"><span>진행중 프로모션</span><b>${active}건</b></div>
+      <div class="pm-card-row"><span>등록 스타일</span><b>${styleCount}개</b></div>
+      <div class="pm-card-row viol"><span>🔴 위반</span><b>${violCount}건</b></div>
+    </div>`;
+  });
+
+  // ── ② 위반 점검 테이블 ──
+  let violTable;
+  if (viols.length === 0) {
+    violTable = `<div class="pm-empty-note">🎉 현재 위반·과할인이 없습니다.</div>`;
+  } else {
+    const body = viols.map(v => {
+      const color = CH[v.channel]?.color || '#888';
+      const typeChip = `<span class="pm-viol-chip ${v.type}">${v.type==='over'?'과할인':'위반'}</span>`;
+      const plannedTxt = v.plannedRate != null ? `${v.plannedRate}%` : '<span style="color:#9ca3af">미정</span>';
+      const period = (v.start||'?') + '~' + (v.end||'상시');
+      const promoTxt = v.promoName ? `${esc(v.promoName)}<br><span style="color:#9ca3af;font-size:.65rem">${period}</span>` : `<span style="color:#9ca3af">${period}</span>`;
+      return `<tr>
+        <td class="vt-code">${esc(v.code)}</td>
+        <td>${esc(v.name||'')}</td>
+        <td><span class="pm-viol-chip" style="background:${color}22;color:${color}">${PROMO_CH_NAME[v.channel]}</span> ${typeChip}</td>
+        <td><b style="color:#b91c1c">${v.actualRate!=null?v.actualRate+'%':'-'}</b><br><span style="color:#9ca3af;font-size:.65rem">${fmt(v.actualPrice)}원</span></td>
+        <td>${plannedTxt}</td>
+        <td>${promoTxt}</td>
+        <td>${v.officialPrice?fmt(v.officialPrice)+'원':'-'}</td>
+      </tr>`;
+    }).join('');
+    violTable = `<table class="pm-viol-table">
+      <thead><tr><th>스타일코드</th><th>스타일명</th><th>위반 채널</th><th>실제 할인</th><th>계획 할인</th><th>프로모션(기간)</th><th>자사몰가</th></tr></thead>
+      <tbody>${body}</tbody></table>`;
+  }
+
+  // ── ③ 채널별 프로모션 상세 ──
+  let detail = '';
+  PROMO_CH_ORDER.forEach(ch => {
+    const gs = groups[ch] || [];
+    if (!gs.length) return;
+    const color = CH[ch]?.color || '#888';
+    detail += `<div class="promo-section-title" style="margin-top:14px">
+      <span class="pm-card-dot" style="background:${color}"></span>${PROMO_CH_NAME[ch]} <span class="promo-sub">프로모션 ${gs.length}건</span></div>`;
+    gs.forEach((g, gi) => {
+      const pstate = _periodState(g.start, g.end, today);
+      const counts = [];
+      if (g.counts.ok)   counts.push(`<span class="pm-mini ok">정상 ${g.counts.ok}</span>`);
+      if (g.counts.over) counts.push(`<span class="pm-mini viol">과할인 ${g.counts.over}</span>`);
+      if (g.counts.viol) counts.push(`<span class="pm-mini viol">위반 ${g.counts.viol}</span>`);
+      if (g.counts.miss) counts.push(`<span class="pm-mini miss">누락 ${g.counts.miss}</span>`);
+      const styles = g.styles.map(s => `<div class="pm-style-row">
+        <span class="code">${esc(s.code)}</span>
+        <span class="nm">${esc(s.name||'')}</span>
+        ${s.status?`<span class="promo-badge ${s.status}">${PROMO_LABEL[s.status]}</span>`:''}
+      </div>`).join('');
+      detail += `<div class="pm-group" id="pmg-${ch}-${gi}">
+        <div class="pm-group-head" onclick="document.getElementById('pmg-${ch}-${gi}').classList.toggle('open')">
+          <span class="pm-ch-tag" style="background:${color}">${PROMO_CH_NAME[ch]}</span>
+          <span>${esc(g.name)}</span>
+          <span class="pm-period ${pstate}">${_periodLabel(pstate)} · ${g.start||'?'}~${g.end||'상시'}</span>
+          <span class="pm-group-counts">${counts.join('')}<span class="pm-mini" style="background:#eef2ff;color:#4338ca">${g.styles.length}개</span></span>
+        </div>
+        <div class="pm-group-body">${styles}</div>
+      </div>`;
+    });
+  });
+
+  pad.innerHTML = `
+    <div class="promo-section-title">📋 채널별 프로모션 현황
+      <span class="promo-sub">· 시트 동기화 ${sheetTime} · <a href="${_promo.sheetUrl||'#'}" target="_blank">시트 편집 →</a></span>
+    </div>
+    <div class="pm-cards">${cards}</div>
+
+    <div class="promo-section-title">🔴 위반 점검 <span class="promo-sub">계획과 다른 할인 · ${viols.length}건</span></div>
+    ${violTable}
+
+    <div class="promo-section-title">🗂 채널별 상세 <span class="promo-sub">프로모션명별 스타일 (클릭하여 펼치기)</span></div>
+    ${detail}
+  `;
 }
 
 // 자사몰이 최저가인지 판별
@@ -766,6 +1076,7 @@ async function load() {
     renderAlerts();
     renderWatchPanel();
     render();
+    if (currentTab === 'promo') renderPromoView();
     document.getElementById('ts').textContent =
       new Date().toLocaleString('ko-KR',{hour12:false}).replace(/\. /g,'. ') +
       ' · ' + data.length + '개';
@@ -1268,10 +1579,16 @@ function render() {
       const cls     = isAlert ? 'is-alert' : isLow ? 'is-low' : '';
       const showNorm = ch.normalPrice && ch.normalPrice > ch.price;
 
-      // 프로모션 상태 배지
-      const st = promoStatus(p, id);
-      const PROMO_LABEL = { ok:'🟢 정상', viol:'🔴 위반', miss:'🟠 누락', wait:'⚪ 대기' };
-      const promoBadge = st ? `<div class="promo-badge ${st}">${PROMO_LABEL[st]}</div>` : '';
+      // 프로모션 상태 배지 + 프로모션명
+      const pInfo = promoInfo(p, id);
+      let promoBadge = '';
+      if (pInfo) {
+        const period = `${pInfo.start||'?'} ~ ${pInfo.end||'상시'}`;
+        const tip = (pInfo.name ? pInfo.name + ' · ' : '') + period;
+        promoBadge =
+          `<div class="promo-badge ${pInfo.status}" title="${esc(tip)}">${PROMO_LABEL[pInfo.status]}</div>` +
+          (pInfo.name ? `<div class="promo-name" title="${esc(tip)}">${esc(pInfo.name)}</div>` : '');
+      }
 
       return `<td class="price-cell${sepCls}">
         <div class="ch-price ${cls}">
