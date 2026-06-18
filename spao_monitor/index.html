@@ -933,13 +933,20 @@ function renderPromoView() {
   // ── 데이터 신선도 ──
   const sheetTime = _promo.lastFetch ? new Date(_promo.lastFetch*1000).toLocaleString('ko-KR',{hour12:false}) : '—';
 
+  // ── 채널별 위반 집계 (중앙 모니터링: 전체 관리대상 중 이 채널이 어긴 수) ──
+  const violByCh = {};
+  PROMO_CH_ORDER.forEach(c => violByCh[c] = 0);
+  data.forEach(p => PROMO_CH_ORDER.forEach(c => {
+    if (_isViolStatus(promoStatus(p, c))) violByCh[c]++;
+  }));
+
   // ── ① 채널 요약 카드 ──
   let cards = '';
   PROMO_CH_ORDER.forEach(ch => {
     const gs = groups[ch] || [];
     const active = gs.filter(g => _periodState(g.start,g.end,today)==='active').length;
     const styleCount = gs.reduce((n,g)=>n+g.styles.length,0);
-    const violCount = gs.reduce((n,g)=>n+(g.counts.viol||0)+(g.counts.over||0),0);
+    const violCount = violByCh[ch];   // 전체 기준 위반 (위반 테이블과 일치)
     const color = CH[ch]?.color || '#888';
     cards += `<div class="pm-card">
       <div class="pm-card-head"><span class="pm-card-dot" style="background:${color}"></span>${PROMO_CH_NAME[ch]}</div>
