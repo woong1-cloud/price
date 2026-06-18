@@ -1052,10 +1052,12 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
     i_start = col("시작일")
     i_end   = col("종료일")
     i_allow = col("할인허용채널")   # 자사몰 탭 전용 (없으면 -1)
-    i_promo = col("프로모션명", "프로모션", "행사명")   # 없으면 -1
+    i_promo = col("프로모션명", "프로모션", "행사명", "비고(프로모션)", "비고")   # 없으면 -1
     i_norm  = col("정상가")
     i_rate  = col("할인율")
     i_disc  = col("할인가")
+    i_coup  = col("쿠폰할인", "쿠폰")
+    i_final = col("최종할인가(예측)", "최종할인가", "최종가")
 
     def _num(idx):
         """셀 → 정수 (콤마/원/% 제거). 비정상이면 0"""
@@ -1066,6 +1068,31 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
             return int(float(s)) if s else 0
         except Exception:
             return 0
+
+    def _cell(idx):
+        return (row[idx].strip() if 0 <= idx < len(row) else "")
+
+    def _planned(normal, rate, sale, coupon_raw, final_given):
+        """계획 최종가·최종할인율 계산
+           정상가 → (할인율 or 할인가) → 쿠폰(%/원) 순차 반영 = 프로모션 가격"""
+        if final_given > 0:
+            final = final_given
+        else:
+            base = sale if sale > 0 else (round(normal * (1 - rate / 100)) if rate > 0 else normal)
+            cs = (coupon_raw or "").strip()
+            cnum = re.sub(r"[^\d.]", "", cs)
+            cval = float(cnum) if cnum else 0
+            if cval > 0:
+                if "%" in cs:
+                    base = round(base * (1 - cval / 100))
+                else:
+                    base = base - int(cval)
+            final = base
+        if normal > 0 and 0 < final < normal:
+            prate = round((1 - final / normal) * 100)
+        else:
+            prate = 0
+        return int(final), prate
 
     out: dict = {}
     for row in rows[1:]:
@@ -1091,11 +1118,17 @@ def _parse_promo_csv(text: str, channel: str) -> dict:
                     cid = _PROMO_CH_ALIAS.get(t.strip())
                     if cid and cid not in allow:
                         allow.append(cid)
+        _normal = _num(i_norm)
+        _rate   = _num(i_rate)
+        _sale   = _num(i_disc)
+        _final, _prate = _planned(_normal, _rate, _sale, _cell(i_coup), _num(i_final))
         out[code] = {"start": start, "end": end, "name": name,
                      "promo": promo_name, "allow": allow,
-                     "normalPrice": _num(i_norm),
-                     "rate": _num(i_rate),
-                     "salePrice": _num(i_disc)}
+                     "normalPrice": _normal,
+                     "rate": _rate,
+                     "salePrice": _sale,
+                     "plannedPrice": _final,    # 쿠폰까지 반영한 최종 프로모션가
+                     "plannedRate":  _prate}    # 최종 할인율(%)
     return out
 
 

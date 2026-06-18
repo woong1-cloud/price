@@ -760,12 +760,11 @@ function _actualRate(ch) {
     return Math.round((1 - ch.price / ch.normalPrice) * 100);
   return 0;
 }
-// 계획 할인율(%) — 할인율 우선, 없으면 정상가/할인가로 계산 (없으면 null=미정)
+// 계획 최종 할인율(%) — 서버가 할인율+쿠폰까지 반영해 계산한 값 (없으면 null=미정)
 function _plannedRate(entry) {
   if (!entry) return null;
+  if (entry.plannedRate > 0) return entry.plannedRate;   // 쿠폰까지 반영된 최종 할인율
   if (entry.rate > 0) return entry.rate;
-  if (entry.normalPrice > 0 && entry.salePrice > 0 && entry.salePrice < entry.normalPrice)
-    return Math.round((1 - entry.salePrice / entry.normalPrice) * 100);
   return null;
 }
 const PROMO_RATE_TOL = 2;   // 과할인 판정 허용 오차 (%p) — 쿠폰 등 변동 흡수
@@ -886,28 +885,38 @@ function _buildPromoGroups() {
   return result;
 }
 
-// 위반 행 (style × channel)
+// 위반 — 스타일별로 묶고, 위반 채널을 배열로 (한 스타일 = 한 행)
 function _buildViolations() {
-  const rows = [];
+  const map = {};
   data.forEach(p => {
     PROMO_CH_ORDER.forEach(ch => {
       const st = promoStatus(p, ch);
       if (st !== 'viol' && st !== 'over') return;
+      if (!map[p.styleCode]) {
+        map[p.styleCode] = {
+          code: p.styleCode, name: p.styleName,
+          officialPrice: p.channels.official ? p.channels.official.price : 0,
+          chans: [],
+        };
+      }
       const chObj = p.channels[ch];
       const own = (_promo.channels[ch] || {})[p.styleCode];
       const off = (_promo.channels.official || {})[p.styleCode];
       const ref = own || off;
-      rows.push({
-        code: p.styleCode, name: p.styleName, channel: ch, type: st,
+      map[p.styleCode].chans.push({
+        channel: ch, type: st,
         actualRate: _actualRate(chObj), actualPrice: chObj ? chObj.price : 0,
         plannedRate: _plannedRate(own || off),
         promoName: ref ? (ref.promo || '') : '', start: ref ? ref.start : '', end: ref ? ref.end : '',
-        officialPrice: p.channels.official ? p.channels.official.price : 0,
-        link: chObj ? chObj.link : '#',
       });
     });
   });
-  return rows.sort((a,b) => (a.code||'').localeCompare(b.code||''));
+  // 과할인 우선 정렬, 그 다음 코드순
+  return Object.values(map).sort((a,b) => {
+    const ao = a.chans.some(c=>c.type==='over') ? 0 : 1;
+    const bo = b.chans.some(c=>c.type==='over') ? 0 : 1;
+    return ao - bo || (a.code||'').localeCompare(b.code||'');
+  });
 }
 
 function renderPromoView() {
@@ -940,29 +949,38 @@ function renderPromoView() {
     </div>`;
   });
 
-  // ── ② 위반 점검 테이블 ──
+  // ── ② 위반 점검 테이블 (스타일별 1행, 위반 채널 칩) ──
   let violTable;
+  const violChanCount = viols.reduce((n,v)=>n+v.chans.length,0);
   if (viols.length === 0) {
     violTable = `<div class="pm-empty-note">🎉 현재 위반·과할인이 없습니다.</div>`;
   } else {
     const body = viols.map(v => {
-      const color = CH[v.channel]?.color || '#888';
-      const typeChip = `<span class="pm-viol-chip ${v.type}">${v.type==='over'?'과할인':'위반'}</span>`;
-      const plannedTxt = v.plannedRate != null ? `${v.plannedRate}%` : '<span style="color:#9ca3af">미정</span>';
-      const period = (v.start||'?') + '~' + (v.end||'상시');
-      const promoTxt = v.promoName ? `${esc(v.promoName)}<br><span style="color:#9ca3af;font-size:.65rem">${period}</span>` : `<span style="color:#9ca3af">${period}</span>`;
+      const chips = v.chans.map(c => {
+        const color = CH[c.channel]?.color || '#888';
+        const typeTxt = c.type === 'over' ? '과할인' : '위반';
+        const plan = c.plannedRate != null ? `계획 ${c.plannedRate}%` : '계획 미정';
+        const tip = `${PROMO_CH_NAME[c.channel]} · 실제 ${c.actualRate}% (${fmt(c.actualPrice)}원) · ${plan}` +
+                    (c.promoName ? ` · ${c.promoName}` : '');
+        return `<span class="pm-viol-chip ${c.type}" title="${esc(tip)}"
+                  style="border-left:3px solid ${color}">
+                  ${PROMO_CH_NAME[c.channel]} ${c.actualRate}% <b>${typeTxt}</b>
+                </span>`;
+      }).join(' ');
+      // 대표 프로모션명·기간 (첫 위반 채널 기준)
+      const ref = v.chans[0];
+      const period = (ref.start||'?') + '~' + (ref.end||'상시');
+      const promoTxt = ref.promoName ? `${esc(ref.promoName)}<br><span style="color:#9ca3af;font-size:.65rem">${period}</span>` : `<span style="color:#9ca3af">${period}</span>`;
       return `<tr>
         <td class="vt-code">${esc(v.code)}</td>
         <td>${esc(v.name||'')}</td>
-        <td><span class="pm-viol-chip" style="background:${color}22;color:${color}">${PROMO_CH_NAME[v.channel]}</span> ${typeChip}</td>
-        <td><b style="color:#b91c1c">${v.actualRate!=null?v.actualRate+'%':'-'}</b><br><span style="color:#9ca3af;font-size:.65rem">${fmt(v.actualPrice)}원</span></td>
-        <td>${plannedTxt}</td>
+        <td>${chips}</td>
         <td>${promoTxt}</td>
         <td>${v.officialPrice?fmt(v.officialPrice)+'원':'-'}</td>
       </tr>`;
     }).join('');
     violTable = `<table class="pm-viol-table">
-      <thead><tr><th>스타일코드</th><th>스타일명</th><th>위반 채널</th><th>실제 할인</th><th>계획 할인</th><th>프로모션(기간)</th><th>자사몰가</th></tr></thead>
+      <thead><tr><th>스타일코드</th><th>스타일명</th><th>위반 채널 (실제할인 · 유형)</th><th>프로모션(기간)</th><th>자사몰가</th></tr></thead>
       <tbody>${body}</tbody></table>`;
   }
 
@@ -1004,7 +1022,7 @@ function renderPromoView() {
     </div>
     <div class="pm-cards">${cards}</div>
 
-    <div class="promo-section-title">🔴 위반 점검 <span class="promo-sub">계획과 다른 할인 · ${viols.length}건</span></div>
+    <div class="promo-section-title">🔴 위반 점검 <span class="promo-sub">계획과 다른 할인 · ${viols.length}개 스타일 / ${violChanCount}건</span></div>
     ${violTable}
 
     <div class="promo-section-title">🗂 채널별 상세 <span class="promo-sub">프로모션명별 스타일 (클릭하여 펼치기)</span></div>
