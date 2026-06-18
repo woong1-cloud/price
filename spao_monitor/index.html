@@ -199,6 +199,7 @@ tr.promo-violation td.sticky-season { box-shadow: inset 3px 0 0 #dc2626; }
 .mx-badge.miss { background:#ffedd5; color:#c2410c; }
 .mx-badge.dup  { background:#ede9fe; color:#6d28d9; }
 .mx-na { color:#cbd5e1; }
+.mx-base { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 6px; border-radius:8px; background:#f1f5f9; color:#64748b; }
 .mx-table tr.mx-conflict { background:#fef2f2; }
 .confmark { color:#dc2626; font-style:normal; }
 .mx-legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; font-size:11px; color:var(--text-muted); align-items:center; }
@@ -857,6 +858,7 @@ function _periodActive(code) {
 function periodStatus(p, chId) {
   const e = _periodActive(p.styleCode);
   if (!e) return null;
+  if (chId === 'official') return null;   // 자사몰 = 베이스(기준), 모니터링 제외
   const apply = (e.apply && e.apply.length) ? e.apply : PROMO_CH_ORDER;
   const ch = p.channels[chId];
   const disc = _isDiscounting(ch);
@@ -871,9 +873,10 @@ function periodStatus(p, chId) {
   return disc ? 'dup' : null;
 }
 // 채널 탭 + 기간할인 리스트에 동시 등록된 충돌 채널 목록 (없으면 null)
+// 자사몰(베이스)은 제외 — 타채널 탭 중복만 충돌로 판단
 function periodConflict(code) {
   if (!(_promo.periodList || {})[code]) return null;
-  const chans = PROMO_CH_ORDER.filter(c => (_promo.channels[c] || {})[code]);
+  const chans = PROMO_CH_ORDER.filter(c => c !== 'official' && (_promo.channels[c] || {})[code]);
   return chans.length ? chans : null;
 }
 /* 중앙 모니터링 통합 상태: 기간할인 활성이면 그 기준, 아니면 채널 계획 */
@@ -1054,20 +1057,21 @@ function buildPeriodSubview() {
     const conf = periodConflict(code);
     if (conf) conflicts.push({ code, name: e.name, chans: conf });
     const cells = PROMO_CH_ORDER.map(ch => {
-      if (!apply.includes(ch)) return { ch, st: 'na' };
+      if (ch === 'official') return { ch, st: 'base' };   // 자사몰 = 기준
+      if (!apply.includes(ch)) {
+        // 반영 대상 아님 → 할인 중이면 중복(dup)
+        if (active && p && _isDiscounting(p.channels[ch])) {
+          dupN++;
+          return { ch, st: 'dup', actual: _actualRate(p.channels[ch]) };
+        }
+        return { ch, st: 'na' };
+      }
       if (!active || !p) return { ch, st: 'inactive' };
       const st = periodStatus(p, ch);
-      if (active) {
-        if (st==='ok') okN++; else if (st==='over') overN++;
-        else if (st==='miss') missN++; else if (st==='dup') dupN++;
-        targetN++;
-      }
-      return { ch, st, actual: p ? _actualRate(p.channels[ch]) : null };
-    });
-    // 비반영 채널 중복 감지 (dup)
-    PROMO_CH_ORDER.forEach(ch => {
-      if (apply.includes(ch)) return;
-      if (active && p && periodStatus(p, ch) === 'dup') { dupN++; }
+      if (st==='ok') okN++; else if (st==='over') overN++;
+      else if (st==='miss') missN++; else if (st==='dup') dupN++;
+      targetN++;
+      return { ch, st, actual: _actualRate(p.channels[ch]) };
     });
     return { code, name: e.name || (p?p.styleName:''), e, active, apply, conf, cells, p };
   });
@@ -1093,6 +1097,7 @@ function buildPeriodSubview() {
 
   // 매트릭스
   const cellHtml = (cell) => {
+    if (cell.st === 'base') return `<td class="mx-cell"><span class="mx-base">기준</span></td>`;
     if (cell.st === 'na') return `<td class="mx-cell"><span class="mx-na">—</span></td>`;
     if (cell.st === 'inactive') return `<td class="mx-cell"><span class="mx-na">·</span></td>`;
     if (!cell.st) return `<td class="mx-cell"><span class="mx-na">—</span></td>`;
@@ -1100,7 +1105,7 @@ function buildPeriodSubview() {
     return `<td class="mx-cell"><span class="mx-badge ${cell.st}">${label}</span></td>`;
   };
   const head = `<tr><th style="text-align:left">스타일</th><th>계획</th>` +
-    PROMO_CH_ORDER.map(ch=>`<th style="color:${CH[ch].color}">${PROMO_CH_NAME[ch]}</th>`).join('') + `</tr>`;
+    PROMO_CH_ORDER.map(ch=>`<th style="color:${CH[ch].color}">${PROMO_CH_NAME[ch]}${ch==='official'?'<br><span style=\"font-size:9px;color:#9ca3af;font-weight:500\">기준</span>':''}</th>`).join('') + `</tr>`;
   const tbody = rows.map(r => {
     const pstate = _periodState(r.e.start, r.e.end, today);
     const planned = _plannedRate(r.e);
@@ -1116,6 +1121,7 @@ function buildPeriodSubview() {
   }).join('');
 
   const legend = `<div class="mx-legend">
+    <span><span class="mx-base">기준</span> 자사몰=베이스(제외)</span>
     <span><span class="mx-badge ok">적용</span> 계획대로 할인</span>
     <span><span class="mx-badge miss">미적용</span> 할인 빠짐</span>
     <span><span class="mx-badge over">과 N%</span> 계획보다 더 할인</span>
