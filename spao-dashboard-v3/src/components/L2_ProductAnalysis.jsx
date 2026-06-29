@@ -643,6 +643,246 @@ function ItemGenderTable({ itemGenderMatrix, itemGenderColWow }) {
 }
 
 // ─── L2 메인 ─────────────────────────────────────────────────────────────────
+// ─── 재입고 대기 수요 (품절 기회손실) ────────────────────────────────────────
+function cleanName(name) {
+  return String(name).replace(/_[A-Za-z0-9]+\s*$/, '')
+}
+
+function SizeBar({ sizes }) {
+  const entries = Object.entries(sizes).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  const max = entries[0]?.[1] || 1
+  if (entries.length === 0) return <span style={{ color: '#C8C8C6', fontSize: '0.6875rem' }}>—</span>
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end' }}>
+      {entries.map(([size, cnt]) => (
+        <div key={size} style={{ textAlign: 'center', minWidth: 22 }}>
+          <div title={`${size}: ${cnt}건`} style={{
+            height: Math.max(4, Math.round(cnt / max * 28)), background: '#7F77DD',
+            borderRadius: 2, opacity: 0.45 + 0.55 * (cnt / max),
+          }} />
+          <div style={{ fontSize: '0.5625rem', color: '#A0A09E', marginTop: 2 }}>{size}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const CONV_OPTIONS = [0.1, 0.2, 0.3]
+
+function RestockSection({ restockMetrics, hasWoW }) {
+  const [expanded, setExpanded] = useState(false)
+  const [cls, setCls] = useState('all')      // all | collab | apparel
+  const [ipFilter, setIpFilter] = useState(null)
+  const [conv, setConv] = useState(0.3)      // 예상매출 가정 전환율
+  if (!restockMetrics?.products?.length) return null
+  const { products, crossHot, topSizes, summary, classSummary, ipSummary = [], estBaseAll = 0, priceCoverage } = restockMetrics
+
+  let filtered = cls === 'collab'  ? products.filter(p => p.isCollab)
+               : cls === 'apparel' ? products.filter(p => !p.isCollab)
+               : products
+  if (cls === 'collab' && ipFilter) filtered = filtered.filter(p => p.ip === ipFilter)
+  const pool = filtered.slice(0, 50)                 // 그룹 내 최대 50개 관리
+  const top  = expanded ? pool : pool.slice(0, 20)   // 기본 20개 노출
+
+  const hasPrice = priceCoverage && priceCoverage.overallUnit > 0
+  const segs = [
+    { id: 'all',     label: '전체',   icon: '📦', color: '#E24B4A', cnt: summary.totalCnt,         productCount: summary.productCount,             wow: summary.totalWoW,         estBase: estBaseAll },
+    { id: 'collab',  label: '콜라보', icon: '✨', color: '#7F77DD', cnt: classSummary.collab.cnt,  productCount: classSummary.collab.productCount,  wow: classSummary.collab.wow,  estBase: classSummary.collab.estBase },
+    { id: 'apparel', label: '어패럴', icon: '👕', color: '#378ADD', cnt: classSummary.apparel.cnt, productCount: classSummary.apparel.productCount, wow: classSummary.apparel.wow, estBase: classSummary.apparel.estBase },
+  ]
+
+  return (
+    <div className="card p-5" style={{ borderTop: '3px solid #E24B4A' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+        <SectionHeader icon="🔥" title="재입고 대기 수요 (품절 기회손실)" color="#E24B4A" perspective="MD" />
+        <span style={{ fontSize: '0.6875rem', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+          재입고 알림 기준 · 사고 싶었는데 품절
+        </span>
+      </div>
+
+      {/* 분류 스코어보드 (클릭 = 그룹 필터) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 10 }}>
+        {segs.map(s => {
+          const active = cls === s.id
+          return (
+            <button key={s.id} onClick={() => { setCls(s.id); setExpanded(false); setIpFilter(null) }} style={{
+              textAlign: 'left', cursor: 'pointer', font: 'inherit',
+              background: active ? `${s.color}12` : '#F8F8F7',
+              border: `1.5px solid ${active ? s.color : '#F0F0EE'}`,
+              boxShadow: active ? `0 1px 6px ${s.color}33` : 'none',
+              borderRadius: 10, padding: '12px 14px', transition: 'all .15s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: '0.875rem' }}>{s.icon}</span>
+                <span style={{ fontSize: '0.75rem', color: active ? s.color : '#6B6B68', fontWeight: 700 }}>{s.label}</span>
+                {active && <span style={{ marginLeft: 'auto', fontSize: '0.5625rem', color: s.color, fontWeight: 700 }}>● 선택됨</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 800, fontSize: '1.375rem', color: s.color }}>
+                  {fmtComma(s.cnt)}<span style={{ fontSize: '0.75rem', fontWeight: 600 }}>건</span>
+                </span>
+                {s.wow !== null && s.wow !== undefined && hasWoW && <WoWBadge wow={s.wow} size="xs" />}
+              </div>
+              <div style={{ fontSize: '0.625rem', color: '#A0A09E', marginTop: 3 }}>상품 {fmtComma(s.productCount)}개</div>
+              {hasPrice && (
+                <div style={{ fontSize: '0.625rem', color: '#1A8060', marginTop: 5, fontWeight: 600 }}>
+                  예상 재입고 매출 ~{fmt억(s.estBase * conv)}
+                </div>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 예상매출 가정 전환율 + 신뢰도 */}
+      {hasPrice && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, background: '#F0FDF8', border: '1px solid #BBF7D0', borderRadius: 8, padding: '8px 12px' }}>
+          <span style={{ fontSize: '0.6875rem', color: '#1A8060', fontWeight: 700 }}>💰 예상매출 가정 전환율</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {CONV_OPTIONS.map(c => (
+              <button key={c} onClick={() => setConv(c)} style={{
+                cursor: 'pointer', font: 'inherit', border: `1px solid ${conv === c ? '#1A8060' : '#BBF7D0'}`,
+                background: conv === c ? '#1A8060' : '#fff', color: conv === c ? '#fff' : '#1A8060',
+                borderRadius: 6, padding: '3px 10px', fontSize: '0.6875rem', fontWeight: 700,
+              }}>{Math.round(c * 100)}%</button>
+            ))}
+          </div>
+          <span style={{ fontSize: '0.625rem', color: '#6B6B68' }}>
+            = 대기 고객 중 {Math.round(conv * 100)}%가 재입고 시 구매한다고 가정 · 단가는 판매 실적 기준 추정
+          </span>
+          <span style={{ marginLeft: 'auto', fontSize: '0.625rem', color: priceCoverage.pricedCntPct >= 50 ? '#1A8060' : '#B45309', fontWeight: 600 }}>
+            가격 커버리지 {priceCoverage.pricedCntPct.toFixed(0)}% (판매 이력 보유 기준)
+          </span>
+        </div>
+      )}
+
+      <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginBottom: 16 }}>
+        카드를 클릭하면 해당 그룹만 정렬됩니다 · 최다 수요 사이즈 {topSizes.slice(0, 3).map(s => `${s.size}(${s.cnt})`).join(' · ') || '—'} · 단품 {fmtComma(summary.skuCount)}개
+      </div>
+
+      {/* 콜라보 선택 시: IP별 인기도 + 드릴다운 */}
+      {cls === 'collab' && ipSummary.length > 0 && (
+        <div style={{ background: '#F8F7FC', border: '1px solid #E5E1F5', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#5B4FC4' }}>✨ IP별 재입고 인기도</span>
+            <span style={{ fontSize: '0.625rem', color: '#A0A09E' }}>칩을 클릭하면 해당 IP 상품만 정렬됩니다</span>
+            {ipFilter && (
+              <button onClick={() => { setIpFilter(null); setExpanded(false) }} style={{
+                marginLeft: 'auto', cursor: 'pointer', font: 'inherit', border: '1px solid #E5E1F5',
+                background: '#fff', color: '#5B4FC4', borderRadius: 6, padding: '2px 8px', fontSize: '0.625rem', fontWeight: 700,
+              }}>✕ IP 필터 해제</button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {ipSummary.map(ip => {
+              const active = ipFilter === ip.ip
+              return (
+                <button key={ip.ip} onClick={() => { setIpFilter(active ? null : ip.ip); setExpanded(false) }} style={{
+                  cursor: 'pointer', font: 'inherit',
+                  background: active ? '#5B4FC4' : '#fff',
+                  border: `1px solid ${active ? '#5B4FC4' : '#E5E1F5'}`,
+                  color: active ? '#fff' : '#1A1A1A',
+                  borderRadius: 20, padding: '5px 12px', fontSize: '0.75rem', fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}>
+                  {ip.ip}
+                  <strong style={{ color: active ? '#fff' : '#5B4FC4' }}>{fmtComma(ip.cnt)}명</strong>
+                  <span style={{ fontSize: '0.5625rem', color: active ? '#E5E1F5' : '#A0A09E' }}>{ip.productCount}개</span>
+                  {hasWoW && ip.wow !== null && ip.wow !== undefined && <WoWBadge wow={ip.wow} size="xs" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 잘 팔리는데 품절 — 최우선 리오더 하이라이트 */}
+      {crossHot.length > 0 && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#B91C1C', marginBottom: 6 }}>
+            ⭐ 잘 팔리는데 품절 — 최우선 리오더 {crossHot.length}건
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#7F1D1D', lineHeight: 1.6 }}>
+            이번 주 <strong>판매가 발생 중인데 재입고 대기까지 걸린 상품</strong>입니다. 재고만 채우면 바로 더 팔 수 있는 명백한 기회손실이에요.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {crossHot.map(p => (
+              <span key={p.productNo || p.name} style={{ background: '#fff', border: '1px solid #FECACA', borderRadius: 6, padding: '3px 9px', fontSize: '0.6875rem', color: '#1A1A1A' }}>
+                {cleanName(p.name)} <strong style={{ color: '#B91C1C' }}>{fmtComma(p.cnt)}명</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TOP 상품 테이블 */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+          <thead>
+            <tr style={{ background: '#F8F8F7', borderBottom: '1px solid #E8E8E6' }}>
+              {['#', '상품', '품목', '대기건수', hasWoW ? '전주대비' : '', '단품', ...(hasPrice ? ['예상매출'] : []), '사이즈별 수요'].filter(Boolean).map((h, i) => (
+                <th key={h + i} style={{ padding: '9px 12px', textAlign: i === 1 ? 'left' : i <= 1 ? 'center' : 'right', fontWeight: 600, color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {top.length === 0 && (
+              <tr><td colSpan={(hasWoW ? 7 : 6) + (hasPrice ? 1 : 0)} style={{ padding: '24px 12px', textAlign: 'center', color: '#A0A09E', fontSize: '0.8125rem' }}>
+                이 그룹에는 재입고 대기 상품이 없습니다.
+              </td></tr>
+            )}
+            {top.map((p, i) => (
+              <tr key={p.productNo || p.name} style={{ borderBottom: '1px solid #F0F0EE', background: p.hot ? '#FFFBFB' : 'transparent' }}>
+                <td style={{ padding: '9px 12px', textAlign: 'center', color: '#A0A09E', fontWeight: 700 }}>{i + 1}</td>
+                <td style={{ padding: '9px 12px', maxWidth: 280 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {p.hot && <span title="판매 중인데 품절 — 최우선 리오더" style={{ fontSize: '0.75rem' }}>⭐</span>}
+                    <span style={{ fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cleanName(p.name)}</span>
+                  </div>
+                </td>
+                <td style={{ padding: '9px 12px', textAlign: 'center', color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{p.itemName || '—'}</td>
+                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#E24B4A' }}>{fmtComma(p.cnt)}<span style={{ fontSize: '0.6875rem', fontWeight: 500 }}>명</span></td>
+                {hasWoW && (
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                    {p.isNewDemand ? <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 700, background: '#FFF9F0', borderRadius: 4, padding: '1px 6px' }}>신규</span> : <WoWBadge wow={p.wow} size="xs" />}
+                  </td>
+                )}
+                <td style={{ padding: '9px 12px', textAlign: 'right', color: '#6B6B68' }}>{p.skuCount}</td>
+                {hasPrice && (
+                  <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontWeight: 700, color: '#1A8060' }}>~{fmt억(p.estBase * conv)}</span>
+                    {!p.hasPrice && <span title="판매 이력이 없어 전체 평균단가로 추정" style={{ fontSize: '0.5625rem', color: '#B45309', marginLeft: 4 }}>≈</span>}
+                  </td>
+                )}
+                <td style={{ padding: '9px 12px' }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><SizeBar sizes={p.sizes} /></div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pool.length > 20 && (
+        <div style={{ marginTop: 10, textAlign: 'center' }}>
+          <button
+            onClick={() => setExpanded(v => !v)}
+            style={{
+              background: '#fff', border: '1px solid #E8E8E6', borderRadius: 8,
+              padding: '7px 18px', fontSize: '0.75rem', fontWeight: 700, color: '#6B6B68',
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {expanded
+              ? <>접기 <span style={{ fontSize: '0.625rem' }}>▲</span></>
+              : <>더보기 <span style={{ color: '#E24B4A' }}>+{pool.length - 20}개</span> <span style={{ fontSize: '0.625rem' }}>▼</span></>}
+          </button>
+          <div style={{ fontSize: '0.625rem', color: '#A0A09E', marginTop: 5 }}>
+            {cls === 'all' ? '전체' : cls === 'collab' ? '콜라보' : '어패럴'} 상위 {pool.length}개 표시{filtered.length > 50 ? ` · 그룹 전체 ${fmtComma(filtered.length)}개 상품` : ''}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function L2_ProductAnalysis({ derived }) {
   const {
     matchedRate, unmatchedCodes,
@@ -650,12 +890,16 @@ export default function L2_ProductAnalysis({ derived }) {
     pvGapList, catData, catFunnel, ipData,
     newVsCarry, pareto, genderCatData, topCatsForCross,
     itemGenderMatrix, itemGenderColWow, hasWoW,
+    restockMetrics,
   } = derived
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* 코드 커버리지 경고 */}
       <CoverageBanner matchedRate={matchedRate} unmatchedCodes={unmatchedCodes} />
+
+      {/* 0. 재입고 대기 수요 (품절 기회손실) — 업로드 시에만 표시 */}
+      <RestockSection restockMetrics={restockMetrics} hasWoW={hasWoW} />
 
       {/* 1. 상품 Top 50 */}
       <ProductTabs salesTop15={salesTop15} wishTop15={wishTop15} cartTop15={cartTop15} hasWoW={hasWoW} />

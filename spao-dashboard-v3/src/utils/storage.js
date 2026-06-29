@@ -98,7 +98,7 @@ export async function loadSnapshotPayload(weekKey) {
       .eq('week_key', weekKey)
       .maybeSingle()
     if (error) { console.warn('스냅샷 payload 로드 실패:', error.message); return null }
-    return data?.payload || null
+    return await decodePayload(data?.payload || null)
   } catch (e) {
     console.warn('스냅샷 payload 로드 예외:', e)
     return null
@@ -106,12 +106,15 @@ export async function loadSnapshotPayload(weekKey) {
 }
 
 // 클라우드 jsonb 저장 한도 가드.
-// Supabase API 게이트웨이는 본문이 너무 크면 전송에 실패한다(측정: 24MB OK, 32MB 실패).
-// 가장 무거운 storeCorner(코너×컨텐츠) 가 한도를 넘기면 코너별 컨텐츠 상위 N개만 남기고
-// 나머지를 "기타"로 접어 점진적으로 축소(progressive recap)한다 → 컨텐츠 디테일을 최대한 보존.
-// 그래도 한도를 넘으면 마지막 수단으로 코너 단위 완전 축약(컨텐츠 제거).
-const CLOUD_PAYLOAD_LIMIT = 18_000_000  // 직렬화 ~18MB (측정 한도 24MB 아래 안전 마진)
-const RECAP_STEPS = [12, 6, 3]           // 코너별 컨텐츠 상위 N개로 점진 축소
+// 핵심 제약은 본문 크기가 아니라 "행(row) 수"다 — Supabase Postgres 의 statement_timeout(~8초)은
+// jsonb 안의 행이 많을수록 직렬화/저장 비용이 선형으로 늘어 타임아웃을 유발한다.
+// 실측(현실적 ~530B/행): 1만 행 3.5초 OK · 2만 행 7.3초(경계) · 3만 행 타임아웃(57014).
+// 따라서 storeCorner.items 행 수에 예산을 두고, 초과 시 "매출 상위 코너의 컨텐츠 디테일은 보존"하고
+// 나머지 코너는 코너 단위로 축약(컨텐츠 1행으로 합침)해 행 수를 예산 이내로 맞춘다.
+// (게이트웨이 본문 한도 24MB 는 보조 가드로만 사용.)
+const CLOUD_ROW_BUDGET = 11_000         // storeCorner.items 행 수 상한 (실측 ~4초, 타임아웃 8초 대비 약 2배 여유)
+const CLOUD_ROW_BUDGET_SAFE = 6_000     // 타임아웃 폴백용 안전 예산 (실측 ~2초, 반드시 저장되도록 더 작게)
+const CLOUD_PAYLOAD_LIMIT = 18_000_000  // 직렬화 ~18MB (게이트웨이 본문 한도 보조 가드)
 
 // storeCorner.items 를 (매체×매장그룹×매장상세명×코너명) 단위로 다시 합쳐 컨텐츠 행을 제거
 function collapseStoreCorner(storeCorner) {
@@ -137,84 +140,215 @@ function collapseStoreCorner(storeCorner) {
   return { ...storeCorner, items: Array.from(map.values()) }
 }
 
-// storeCorner.items 를 코너별 컨텐츠 상위 topN 개만 남기고 나머지는 "기타 N개" 한 행으로 접는다.
-function recapStoreCorner(storeCorner, topN) {
+// 한 코너의 컨텐츠 행들을 컨텐츠 없는 코너 단위 한 행으로 합친다.
+function collapseRows(rows) {
+  const f = rows[0]
+  const r = {
+    media: f.media, storeGroup: f.storeGroup, detailName: f.detailName, cornerName: f.cornerName,
+    contentNo: '', contentName: '',
+    impressions: 0, clicks: 0, buyerCnt: 0, orderCnt: 0, realAmt: 0,
+  }
+  for (const x of rows) {
+    r.impressions += x.impressions || 0
+    r.clicks      += x.clicks || 0
+    r.buyerCnt    += x.buyerCnt || 0
+    r.orderCnt    += x.orderCnt || 0
+    r.realAmt     += x.realAmt || 0
+  }
+  return r
+}
+
+// 예산을 넘는 하위(저매출) 코너들을 단 하나의 '기타' 집계 행으로 접는다 → 행 수 하드 상한 보장.
+function collapseExcessCorners(corners) {
+  const first = corners[0]?.rows?.[0] || {}
+  const r = {
+    media: first.media || 'MOBILE', storeGroup: first.storeGroup || '기획전매장',
+    detailName: '기타', cornerName: `기타 ${corners.length}개 코너`,
+    contentNo: '', contentName: '',
+    impressions: 0, clicks: 0, buyerCnt: 0, orderCnt: 0, realAmt: 0,
+  }
+  for (const c of corners) {
+    for (const x of c.rows) {
+      r.impressions += x.impressions || 0
+      r.clicks      += x.clicks || 0
+      r.buyerCnt    += x.buyerCnt || 0
+      r.orderCnt    += x.orderCnt || 0
+      r.realAmt     += x.realAmt || 0
+    }
+  }
+  return r
+}
+
+// storeCorner.items 를 행 예산(rowBudget) 이내로 줄인다 — 출력 행 수는 항상 rowBudget 이하임을 보장한다.
+// 코너를 매출(realAmt) 합계 내림차순으로 정렬해, 예산이 허용하는 한 상위 코너는 컨텐츠를 전부 보존하고
+// 예산을 넘는 하위 코너는 코너 단위(컨텐츠 1행)로 축약한다 → 드릴다운이 중요한 고매출 코너 디테일 우선 보존.
+// 코너 수 자체가 예산을 넘으면 상위 (rowBudget-1) 코너만 남기고 나머지는 하나의 '기타' 행으로 접는다.
+export function budgetStoreCorner(storeCorner, rowBudget) {
   if (!storeCorner || !Array.isArray(storeCorner.items)) return storeCorner
-  // 코너 단위로 그룹핑
+  const items = storeCorner.items
+  if (items.length <= rowBudget) return storeCorner
+
+  // 코너 단위 그룹핑 + 매출 합계
   const groups = new Map()
-  for (const i of storeCorner.items) {
+  for (const i of items) {
     const k = `${i.media}|${i.storeGroup}|${i.detailName}|${i.cornerName}`
     if (!groups.has(k)) groups.set(k, [])
     groups.get(k).push(i)
   }
-  const out = []
+  const corners = []
   for (const rows of groups.values()) {
-    const sorted = [...rows].sort((a, b) => (b.realAmt || 0) - (a.realAmt || 0))
-    const keep = sorted.slice(0, topN)
-    const rest = sorted.slice(topN)
-    out.push(...keep)
-    if (rest.length > 0) {
-      const f = rest[0]
-      const etc = {
-        media: f.media, storeGroup: f.storeGroup, detailName: f.detailName, cornerName: f.cornerName,
-        contentNo: '', contentName: `기타 ${rest.length}개`,
-        impressions: 0, clicks: 0, buyerCnt: 0, orderCnt: 0, realAmt: 0,
-      }
-      for (const r of rest) {
-        etc.impressions += r.impressions || 0
-        etc.clicks      += r.clicks || 0
-        etc.buyerCnt    += r.buyerCnt || 0
-        etc.orderCnt    += r.orderCnt || 0
-        etc.realAmt     += r.realAmt || 0
-      }
-      out.push(etc)
+    let total = 0
+    for (const r of rows) total += r.realAmt || 0
+    corners.push({ rows, total })
+  }
+  // 매출 상위 코너부터 컨텐츠 보존 기회를 준다
+  corners.sort((a, b) => b.total - a.total)
+
+  // 하드 상한: 코너 수가 예산보다 많으면 상위 (rowBudget-1) 코너만 코너 단위로 남기고
+  // 나머지 하위 코너는 단 하나의 '기타' 행으로 접어 행 수를 무조건 예산 이내로 만든다.
+  // (코너가 몇 개든 폴백 본문 크기가 작아져 반드시 저장된다.)
+  if (corners.length > rowBudget) {
+    const keep = corners.slice(0, rowBudget - 1)
+    const rest = corners.slice(rowBudget - 1)
+    const out = keep.map((c) => collapseRows(c.rows))
+    out.push(collapseExcessCorners(rest))
+    return { ...storeCorner, items: out }
+  }
+
+  // 코너 수 ≤ 예산: 모든 코너는 최소 1행(축약본)을 차지한다. 남는 예산만큼 상위 코너의 컨텐츠를 펼친다.
+  let remaining = Math.max(0, rowBudget - corners.length)
+  const out = []
+  for (const c of corners) {
+    const extra = c.rows.length - 1 // 컨텐츠를 전부 펼칠 때 추가로 드는 행 수
+    if (extra <= 0) {
+      out.push(c.rows[0])                 // 컨텐츠 1개 이하 → 그대로 (축약본과 동일)
+    } else if (remaining >= extra) {
+      out.push(...c.rows)                 // 예산 여유 → 컨텐츠 전체 보존
+      remaining -= extra
+    } else {
+      out.push(collapseRows(c.rows))      // 예산 부족 → 코너 단위 축약
     }
   }
   return { ...storeCorner, items: out }
 }
 
-// payload 가 한도를 넘으면 storeCorner 를 점진 축약한 사본을 돌려준다.
-function fitPayloadForCloud(payload) {
+// payload 의 storeCorner 행 수가 예산을 넘으면 축약한 사본을 돌려준다.
+export function fitPayloadForCloud(payload) {
   try {
-    if (JSON.stringify(payload).length <= CLOUD_PAYLOAD_LIMIT) return { payload, shrunk: false }
-    if (payload?.storeCorner) {
-      // 1) 점진 축소: 코너별 컨텐츠 상위 12 → 6 → 3 개로 줄여보며 한도 안에 들면 채택
-      for (const topN of RECAP_STEPS) {
-        const reduced = { ...payload, storeCorner: recapStoreCorner(payload.storeCorner, topN) }
-        if (JSON.stringify(reduced).length <= CLOUD_PAYLOAD_LIMIT) return { payload: reduced, shrunk: true }
-      }
-      // 2) 마지막 수단: 코너 단위 완전 축약(컨텐츠 제거)
-      const collapsed = { ...payload, storeCorner: collapseStoreCorner(payload.storeCorner) }
-      return { payload: collapsed, shrunk: true }
+    const sc = payload?.storeCorner
+    const rowCount = Array.isArray(sc?.items) ? sc.items.length : 0
+    let working = payload
+    let shrunk = false
+
+    // 1) 행 수 예산 초과 → 고매출 코너 컨텐츠 우선 보존, 나머지 코너 단위 축약
+    if (rowCount > CLOUD_ROW_BUDGET) {
+      working = { ...payload, storeCorner: budgetStoreCorner(sc, CLOUD_ROW_BUDGET) }
+      shrunk = true
     }
-    return { payload, shrunk: false }
+
+    // 2) 직렬화 크기 보조 가드(게이트웨이 본문 한도) — 그래도 크면 코너 단위 완전 축약
+    if (working?.storeCorner && JSON.stringify(working).length > CLOUD_PAYLOAD_LIMIT) {
+      return { payload: { ...working, storeCorner: collapseStoreCorner(working.storeCorner) }, shrunk: true }
+    }
+    return { payload: working, shrunk }
   } catch {
     return { payload, shrunk: false }
   }
 }
 
-// 주차 저장/덮어쓰기 — week_key 기준 upsert
+// Postgres statement timeout(57014) 판별 — 메시지/코드 양쪽 확인
+export function isStatementTimeout(error) {
+  if (!error) return false
+  return error.code === '57014' || /statement timeout/i.test(error.message || '')
+}
+
+// ─── payload 압축(gzip) ──────────────────────────────────────────────────────
+// 클라우드 jsonb 에 payload 전체를 gzip→base64 한 단일 문자열({ _gz })로 저장한다.
+// 핵심: Postgres statement_timeout(~8초)은 jsonb 의 구조/행 수가 많을수록 직렬화 비용이 커서 걸린다.
+// 실측: 원본 15MB·86,650행 = 32초(타임아웃 57014) → gzip 1.9MB 단일 문자열 = 1.8초 저장 성공.
+// 행이 아무리 많아도 단 하나의 문자열 값이라 저장이 빠르고, 데이터가 커져도 안전하다.
+const gzipSupported = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined'
+
+function bytesToB64(bytes) {
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+async function gzipToB64(str) {
+  const cs = new CompressionStream('gzip')
+  const writer = cs.writable.getWriter()
+  writer.write(new TextEncoder().encode(str))
+  writer.close()
+  const buf = await new Response(cs.readable).arrayBuffer()
+  return bytesToB64(new Uint8Array(buf))
+}
+async function gunzipFromB64(b64) {
+  const ds = new DecompressionStream('gzip')
+  const writer = ds.writable.getWriter()
+  writer.write(b64ToBytes(b64))
+  writer.close()
+  const buf = await new Response(ds.readable).arrayBuffer()
+  return new TextDecoder().decode(buf)
+}
+
+// 저장된 payload 가 { _gz } 압축 형식이면 풀어 원본 객체로 돌려준다(구버전 평문 payload 는 그대로 통과).
+export async function decodePayload(stored) {
+  if (stored && typeof stored === 'object' && typeof stored._gz === 'string') {
+    try { return JSON.parse(await gunzipFromB64(stored._gz)) }
+    catch (e) { console.warn('payload 압축 해제 실패:', e); return null }
+  }
+  return stored
+}
+
+// 주차 저장/덮어쓰기 — week_key 기준 upsert.
+// 1차: 행 예산 적용본으로 저장(고매출 코너 컨텐츠 보존).
+// 저장 본문은 payload 전체를 gzip 압축한 단일 문자열({ _gz })로 보낸다 → 행 수와 무관하게 빠르게 저장(타임아웃 회피).
+// 압축 미지원(구형 브라우저) 환경에서는 행 예산 축약본으로 폴백한다.
 export async function upsertSnapshot({ weekKey, weekLabel, weekStart, weekEnd, payload, filesPresent = [], updatedBy = null }) {
   if (!supabase) return { ok: false, reason: 'no-client' }
   if (!weekKey) return { ok: false, reason: 'no-week-key' }
   try {
-    const now = new Date().toISOString()
-    const fitted = fitPayloadForCloud(payload)
-    const row = {
+    const base = {
       week_key: weekKey,
       week_label: weekLabel || weekKey,
       week_start: weekStart || null,
       week_end: weekEnd || null,
-      payload: fitted.payload,
       files_present: filesPresent,
-      updated_at: now,
+      updated_at: new Date().toISOString(),
       updated_by: updatedBy,
     }
-    const { error } = await supabase
-      .from('weekly_snapshots')
-      .upsert(row, { onConflict: 'week_key' })
+    const write = (p) => supabase.from('weekly_snapshots').upsert({ ...base, payload: p }, { onConflict: 'week_key' })
+
+    let error
+    let shrunk = false
+
+    if (gzipSupported && payload) {
+      // payload 전체를 gzip 단일 문자열로 저장 → 데이터가 아무리 많아도 컨텐츠 손실 없이 빠르게 저장된다.
+      const gz = await gzipToB64(JSON.stringify(payload))
+      ;({ error } = await write({ _gz: gz }))
+    } else {
+      // 폴백(압축 미지원): 행 예산 축약본 저장, 타임아웃 시 더 작은 안전 예산으로 재시도.
+      const fitted = fitPayloadForCloud(payload)
+      ;({ error } = await write(fitted.payload))
+      shrunk = fitted.shrunk
+      if (isStatementTimeout(error) && payload?.storeCorner) {
+        const safe = { ...payload, storeCorner: budgetStoreCorner(payload.storeCorner, CLOUD_ROW_BUDGET_SAFE) }
+        shrunk = true
+        ;({ error } = await write(safe))
+      }
+    }
+
     if (error) { console.warn('스냅샷 저장 실패:', error.message); return { ok: false, reason: error.message } }
-    return { ok: true, shrunk: fitted.shrunk }
+    return { ok: true, shrunk }
   } catch (e) {
     console.warn('스냅샷 저장 예외:', e)
     return { ok: false, reason: e.message }

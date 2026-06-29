@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getIP } from './categorize'
+import { getIP, extractCollabIP } from './categorize'
 
 describe('getIP — 엄격 모드 (알려진 IP만 콜라보로 인정)', () => {
   it('알려진 IP 브래킷은 표준 표시명을 반환한다', () => {
@@ -24,5 +24,14 @@ describe('getIP — 엄격 모드 (알려진 IP만 콜라보로 인정)', () => 
 
   it('미매핑 브래킷과 알려진 IP가 함께 있으면 알려진 IP를 찾아 반환한다', () => {
     expect(getIP('[쿨링][디즈니] 티셔츠')).toBe('디즈니')
+  })
+
+  it('영문 IP(LUCY)는 기능성 태그로 오인되지 않고 인식된다', () => {
+    // 짧은 영문 토큰은 원래 기능성 태그(COOL 등)로 제외되지만, 등록된 IP 는 우선 매칭
+    expect(getIP('[LUCY] 가방_SPAKG37U01')).toBe('LUCY')
+    expect(getIP('[lucy] 파자마')).toBe('LUCY')
+    expect(extractCollabIP('[LUCY] 반팔티_SPRLG37U10')).toBe('LUCY')
+    // 진짜 기능성 영문 태그는 여전히 콜라보로 보지 않음
+    expect(getIP('[COOL] 와이드 팬츠')).toBeNull()
   })
 })

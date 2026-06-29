@@ -1,5 +1,5 @@
 import { parseStyleCode, validateCodeCoverage } from './styleCodeParser'
-import { getCategory, getIP } from './categorize'
+import { getCategory, getIP, extractCollabIP } from './categorize'
 
 // ─── 포맷 헬퍼 ───────────────────────────────────────────────────────────────
 export const fmt억 = v => (Number(v) / 1e8).toFixed(2) + '억'
@@ -86,6 +86,7 @@ export function computeSalesByDateMetrics(salesByDate, prevSalesByDate = null) {
 
   return {
     sigma,
+    prevSigma: prevSalesByDate?.items?.length ? prevSalesByDate.sigma : null,
     cancelRate,
     aov,
     discountRate,
@@ -234,7 +235,7 @@ function wowPct(curr, prev) {
 // ─── 방문실적 집계 (전주 대비 WoW 포함) ──────────────────────────────────────
 export function calcVisitMetrics(visit, prevVisit = null) {
   if (!visit?.items?.length) {
-    return { channelKPIs: [], dailyUV: [] }
+    return { channelKPIs: [], dailyUV: [], totalUV: 0, prevTotalUV: 0, hasPrev: false }
   }
   const items = visit.items
   const prevItems = prevVisit?.items || []
@@ -277,7 +278,10 @@ export function calcVisitMetrics(visit, prevVisit = null) {
     return row
   })
 
-  return { channelKPIs, dailyUV }
+  const totalUV     = sumField(items, 'uv')
+  const prevTotalUV = sumField(prevItems, 'uv')
+
+  return { channelKPIs, dailyUV, totalUV, prevTotalUV, hasPrev }
 }
 
 // ─── 매장 실적 집계 ──────────────────────────────────────────────────────────
@@ -341,6 +345,226 @@ export function calcStoreMetrics(store) {
   return { storeGroupRevenue, pageCVR, exploreArea, purchaseArea, crossData }
 }
 
+// ─── 재입고 알림내역 (품절 수요) 집계 ────────────────────────────────────────
+// restock: parseRestock 결과({items, totalCnt, ...}). prevRestock: 전주 동일.
+// salesItems: 이번주 판매(sales) 아이템 배열 — styleCode 교차로 "잘 팔리는데 품절" 감지.
+export function computeRestockMetrics(restock, prevRestock = null, salesItems = []) {
+  if (!restock?.items?.length) return null
+
+  // ── 상품 단위 롤업 (단품 → 상품) ──
+  const roll = (items) => {
+    const map = new Map()
+    for (const it of items) {
+      const key = it.productNo || it.name
+      let r = map.get(key)
+      if (!r) {
+        r = { productNo: it.productNo, name: it.name, styleCode: it.styleCode, cnt: 0, skuCount: 0, sizes: {} }
+        map.set(key, r)
+      }
+      r.cnt += it.cnt
+      r.skuCount += 1
+      if (it.size) r.sizes[it.size] = (r.sizes[it.size] || 0) + it.cnt
+    }
+    return map
+  }
+
+  const curMap  = roll(restock.items)
+  const prevMap = prevRestock?.items?.length ? roll(prevRestock.items) : null
+  const hasPrev = !!prevMap
+
+  // 판매 styleCode별 실주문금액·수량 → 단가(realAmt/qty) 산출.
+  //  - salesAmt: 잘 팔리는데 품절 교차 하이라이트용
+  //  - unitPrice: 재입고 예상매출 추정의 단가 근거 (실현 순단가)
+  const salesByCode = new Map()
+  let totAmt = 0, totQty = 0
+  for (const s of (salesItems || [])) {
+    if (!s.styleCode) continue
+    const e = salesByCode.get(s.styleCode) || { amt: 0, qty: 0 }
+    e.amt += (s.realAmt || 0)
+    e.qty += (s.qty || 0)
+    salesByCode.set(s.styleCode, e)
+    totAmt += (s.realAmt || 0)
+    totQty += (s.qty || 0)
+  }
+  const overallUnit = totQty > 0 ? totAmt / totQty : 0   // 가격 미보유 상품 폴백 단가
+
+  const products = [...curMap.values()].map(r => {
+    const parsed = parseStyleCode(r.styleCode)
+    const prevCnt = prevMap?.get(r.productNo || r.name)?.cnt ?? null
+    const sc = r.styleCode ? salesByCode.get(r.styleCode) : null
+    const salesAmt = sc?.amt || 0
+    const unitPrice = (sc && sc.qty > 0) ? sc.amt / sc.qty : null   // 실판매 단가
+    const estUnit = unitPrice != null ? unitPrice : overallUnit     // 추정에 쓸 단가
+    return {
+      ...r,
+      itemName: parsed.itemName || '',
+      gender:   parsed.gender || '',
+      isCollab: parsed.gender === '콜라보',   // 성별코드 U = 캐릭터/브랜드 콜라보
+      ip:       parsed.gender === '콜라보' ? extractCollabIP(r.name) : null,
+      year:     parsed.yearCode || '',
+      isNew:    parsed.isNew || false,
+      prevCnt,
+      wow:      hasPrev ? wowPct(r.cnt, prevCnt) : null,
+      isNewDemand: hasPrev && (prevCnt === null || prevCnt === 0),
+      salesAmt,                 // 이 상품의 이번주 실주문금액(0이면 판매 데이터에 없음)
+      hot:      salesAmt > 0,   // 잘 팔리는데 품절수요까지 = 최우선 리오더
+      unitPrice,                // 실판매 단가(null=판매 이력 없음)
+      hasPrice: unitPrice != null,
+      estUnit,                  // 추정 단가(실단가 or 전체평균 폴백)
+      estBase:  r.cnt * estUnit, // 전환율 적용 전 기준액 (UI에서 ×가정전환율)
+    }
+  }).sort((a, b) => b.cnt - a.cnt)
+
+  // ── 사이즈 분포 (전체) ──
+  const sizeMap = {}
+  for (const it of restock.items) {
+    if (it.size) sizeMap[it.size] = (sizeMap[it.size] || 0) + it.cnt
+  }
+  const topSizes = Object.entries(sizeMap)
+    .map(([size, cnt]) => ({ size, cnt }))
+    .sort((a, b) => b.cnt - a.cnt)
+
+  const crossHot = products.filter(p => p.hot).slice(0, 10)
+
+  const prevTotalCnt = prevRestock?.totalCnt ?? null
+
+  // ── 콜라보 vs 어패럴(비콜라보) 분류 합계 (두 그룹 합 = 전체) ──
+  const bucket = () => ({ cnt: 0, prevCnt: 0, productCount: 0, estBase: 0 })
+  const buckets = { collab: bucket(), apparel: bucket() }
+  for (const p of products) {
+    const b = buckets[p.isCollab ? 'collab' : 'apparel']
+    b.cnt += p.cnt
+    b.prevCnt += (p.prevCnt || 0)
+    b.productCount += 1
+    b.estBase += p.estBase
+  }
+  const classSummary = {
+    collab:  { cnt: buckets.collab.cnt,  productCount: buckets.collab.productCount,  wow: hasPrev ? wowPct(buckets.collab.cnt,  buckets.collab.prevCnt)  : null, estBase: buckets.collab.estBase },
+    apparel: { cnt: buckets.apparel.cnt, productCount: buckets.apparel.productCount, wow: hasPrev ? wowPct(buckets.apparel.cnt, buckets.apparel.prevCnt) : null, estBase: buckets.apparel.estBase },
+  }
+
+  // ── 콜라보 IP별 집계 (인기도 가늠 + IP 드릴다운) ──
+  const ipMap = new Map()
+  for (const p of products) {
+    if (!p.isCollab) continue
+    const e = ipMap.get(p.ip) || { ip: p.ip, cnt: 0, prevCnt: 0, productCount: 0 }
+    e.cnt += p.cnt
+    e.prevCnt += (p.prevCnt || 0)
+    e.productCount += 1
+    ipMap.set(p.ip, e)
+  }
+  const ipSummary = [...ipMap.values()]
+    .map(e => ({ ip: e.ip, cnt: e.cnt, productCount: e.productCount, wow: hasPrev ? wowPct(e.cnt, e.prevCnt) : null }))
+    .sort((a, b) => b.cnt - a.cnt)
+
+  // ── 가격 커버리지 (예상매출 신뢰도) ──
+  const pricedCnt = products.reduce((s, p) => s + (p.hasPrice ? p.cnt : 0), 0)
+  const estBaseAll = products.reduce((s, p) => s + p.estBase, 0)
+  const priceCoverage = {
+    pricedProducts: products.filter(p => p.hasPrice).length,
+    totalProducts:  products.length,
+    pricedCntPct:   restock.totalCnt > 0 ? pricedCnt / restock.totalCnt * 100 : 0, // 대기건수 기준 가격보유 비율
+    overallUnit,
+  }
+
+  return {
+    products,
+    crossHot,
+    topSizes,
+    classSummary,
+    ipSummary,
+    estBaseAll,            // 전환율 적용 전 전체 기준액 (UI: ×가정전환율 = 예상매출)
+    priceCoverage,
+    summary: {
+      totalCnt:     restock.totalCnt,
+      productCount: restock.productCount,
+      skuCount:     restock.skuCount,
+      prevTotalCnt,
+      totalWoW:     hasPrev ? wowPct(restock.totalCnt, prevTotalCnt) : null,
+    },
+    hasPrev,
+  }
+}
+
+// ─── 쿠폰 실적 (프로모션 효율) 집계 ──────────────────────────────────────────
+// coupon: parseCoupon 결과({items, sigma}). prevCoupon: 전주 동일.
+export function computeCouponMetrics(coupon, prevCoupon = null) {
+  if (!coupon?.items?.length) return null
+  const items = coupon.items
+
+  const sum = (arr, f) => arr.reduce((s, r) => s + (r[f] || 0), 0)
+  const agg = (arr) => ({
+    cnt:        arr.length,
+    issued:     sum(arr, 'issued'),
+    used:       sum(arr, 'used'),
+    realAmt:    sum(arr, 'realAmt'),
+    discount:   sum(arr, 'discountAmt'),
+  })
+
+  const total = agg(items)
+  const usageRate = total.issued > 0 ? total.used / total.issued * 100 : 0
+  const efficiency = total.discount > 0 ? total.realAmt / total.discount : 0  // 명목 효율(증분 아님)
+
+  // 부담 주체 분할
+  const burden = {
+    MD:      sum(items, 'burdenMD'),
+    마케팅:  sum(items, 'burdenMktg'),
+    지점:    sum(items, 'burdenStore'),
+    업체:    sum(items, 'burdenVendor'),
+    CS:      sum(items, 'burdenCS'),
+    멤버스:  sum(items, 'burdenMembers'),
+    기타:    sum(items, 'burdenEtc'),
+  }
+  const burdenList = Object.entries(burden)
+    .map(([name, amt]) => ({ name, amt }))
+    .filter(b => b.amt > 0)
+    .sort((a, b) => b.amt - a.amt)
+
+  // 프로모션종류그룹별 (장바구니=온라인 / 오프라인주문 등)
+  const groupMap = {}
+  for (const i of items) {
+    const k = i.promoGroup || '(미분류)'
+    if (!groupMap[k]) groupMap[k] = []
+    groupMap[k].push(i)
+  }
+  const byGroup = Object.entries(groupMap)
+    .map(([group, arr]) => ({ group, ...agg(arr) }))
+    .sort((a, b) => b.realAmt - a.realAmt)
+
+  // 프로모션별 롤업 (같은 프로모션명 합산)
+  const promoMap = new Map()
+  for (const i of items) {
+    const key = i.promoName
+    let r = promoMap.get(key)
+    if (!r) { r = { promoName: i.promoName, promoGroup: i.promoGroup, issued: 0, used: 0, realAmt: 0, discount: 0 }; promoMap.set(key, r) }
+    r.issued += i.issued; r.used += i.used; r.realAmt += i.realAmt; r.discount += i.discountAmt
+  }
+  const promos = [...promoMap.values()]
+    .map(p => ({
+      ...p,
+      efficiency: p.discount > 0 ? p.realAmt / p.discount : 0,
+      usageRate:  p.issued > 0 ? p.used / p.issued * 100 : 0,
+    }))
+    .sort((a, b) => b.realAmt - a.realAmt)
+
+  // 전주 대비(WoW)
+  const hasPrev = !!prevCoupon?.items?.length
+  const prev = hasPrev ? agg(prevCoupon.items) : null
+  const wow = hasPrev ? {
+    realAmt:  wowPct(total.realAmt, prev.realAmt),
+    discount: wowPct(total.discount, prev.discount),
+    used:     wowPct(total.used, prev.used),
+  } : null
+
+  return {
+    summary: { ...total, usageRate, efficiency },
+    burden, burdenList,
+    byGroup, promos,
+    wow, hasPrev,
+    period: coupon.period || '',
+  }
+}
+
 // ─── 메인 파생 계산 ──────────────────────────────────────────────────────────
 export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, store = null }) {
   // V3: thisWeek/lastWeek 슬롯 직접 전달 (2주 데이터 아키텍처)
@@ -350,6 +574,10 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
   const customer = thisWeek?.customer || null
   if (!visit) visit = thisWeek?.visit || null
   if (!store) store = thisWeek?.store || null
+  const restock     = thisWeek?.restock || null
+  const prevRestock = lastWeek?.restock || null
+  const coupon      = thisWeek?.coupon || null
+  const prevCoupon  = lastWeek?.coupon || null
 
   // ── 1. WoW 분리 ──
   const cartSplit = {
@@ -492,6 +720,8 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     cartCnt: cartThisSigma.cartCnt || thisCartCnt,
     orderCnt: cartThisSigma.orderCnt || thisOrderCnt,
     realAmt: cartThisSigma.realAmt || thisRevenue,
+    prevCartCnt: hasWoW ? lastCartCnt : null,
+    prevOrderCnt: hasWoW ? lastOrderCnt : null,
     cartConvRate,
     memberPct,
     nonMemberPct,
@@ -1018,6 +1248,43 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
   const itemGenderColWow = {}
   for (const g of IG_ALL_COLS) itemGenderColWow[g] = hasWoW ? wowPct(igColThis[g], igColPrev[g]) : null
 
+  // ── 재입고 알림내역 (품절 수요) ──
+  const restockMetrics = computeRestockMetrics(restock, prevRestock, salesSplit.thisWeek)
+  if (restockMetrics?.products?.length) {
+    const top = restockMetrics.products[0]
+    // 1순위 재입고 상품 (대기 수요 최다)
+    insights.push({
+      severity: top.cnt >= 100 ? 'danger' : 'warning',
+      title: `재입고 1순위: ${top.name.replace(/_[A-Za-z0-9]+\s*$/, '')}`,
+      desc: `재입고 알림 ${fmtComma(top.cnt)}명 대기 (단품 ${top.skuCount}개)${top.hot ? ' · 판매 중인 상품인데 품절 — 매출 직접 손실 중' : ''}. 전체 ${fmtComma(restockMetrics.summary.totalCnt)}건 중 ${(top.cnt / restockMetrics.summary.totalCnt * 100).toFixed(0)}% 집중.`,
+      action: `'${top.name.replace(/_[A-Za-z0-9]+\s*$/, '')}' 재입고/리오더를 최우선 검토하세요. 사이즈는 ${Object.entries(top.sizes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s, c]) => `${s}(${c})`).join(' · ')} 순으로 수요가 높습니다.`,
+    })
+    // "잘 팔리는데 품절" 교차 신호
+    if (restockMetrics.crossHot.length > 0) {
+      const names = restockMetrics.crossHot.slice(0, 3).map(p => p.name.replace(/_[A-Za-z0-9]+\s*$/, '')).join(', ')
+      insights.push({
+        severity: 'danger',
+        title: `잘 팔리는데 품절 ${restockMetrics.crossHot.length}건 — 즉시 리오더`,
+        desc: `이번 주 판매가 발생 중인데 재입고 대기까지 걸린 상품 ${restockMetrics.crossHot.length}개. 재고만 있으면 바로 더 팔 수 있는 명백한 기회손실입니다. (예: ${names})`,
+        action: `해당 상품들을 우선 리오더 리스트에 올리세요. L2 상품분석 '재입고 대기 수요' 섹션에서 전체 목록과 사이즈별 수요를 확인할 수 있습니다.`,
+      })
+    }
+  }
+
+  // ── 쿠폰 실적 (프로모션 효율) ──
+  const couponMetrics = computeCouponMetrics(coupon, prevCoupon)
+  if (couponMetrics) {
+    const lowUse = couponMetrics.promos.filter(p => p.discount > 1_000_000 && p.realAmt < p.discount * 2)
+    if (lowUse.length > 0) {
+      insights.push({
+        severity: 'warning',
+        title: `저효율 쿠폰 ${lowUse.length}건 — 할인 대비 매출 저조`,
+        desc: `할인 100만원 이상 투입했는데 기여 실주문이 할인의 2배 미만인 프로모션이 ${lowUse.length}건입니다. (예: ${lowUse.slice(0, 2).map(p => p.promoName).join(', ')})`,
+        action: `해당 쿠폰의 할인율·대상·노출을 재검토하세요. L1 '쿠폰 효율' 섹션에서 프로모션별 효율을 확인할 수 있습니다.`,
+      })
+    }
+  }
+
   return {
     period, thisP, lastP, hasWoW,
     kpis,
@@ -1030,6 +1297,8 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     newVsReturn,
     matchedRate, unmatchedCodes,
     visitMetrics, storeMetrics,
+    restockMetrics,
+    couponMetrics,
     insights,
     itemGenderMatrix, itemGenderColWow,
   }

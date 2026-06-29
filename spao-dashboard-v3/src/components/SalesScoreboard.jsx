@@ -160,49 +160,148 @@ function DailyTrend({ dailyOrders, medias }) {
   )
 }
 
-// ─── 구매 퍼널 (UV 데이터 있을 때 완성) ────────────────────────────────────
+// ─── 유입 → 사이트 전환 (UV 데이터 있을 때 완성) ──────────────────────────
 function PurchaseFunnel({ metrics, visitMetrics, cartSigma }) {
-  const { sigma } = metrics
-  const totalUV    = visitMetrics?.channelKPIs?.reduce((s, k) => s + k.uv, 0) || 0
-  const cartCnt    = cartSigma?.cartCnt || 0
-  const orderCnt   = sigma.orderCnt || 0
+  const { sigma, prevSigma } = metrics
+  const totalUV      = visitMetrics?.totalUV || visitMetrics?.channelKPIs?.reduce((s, k) => s + k.uv, 0) || 0
+  const prevTotalUV  = visitMetrics?.prevTotalUV || 0
+  const cartCnt      = cartSigma?.cartCnt || 0
+  const prevCartCnt  = cartSigma?.prevCartCnt ?? null
+  const orderCnt     = sigma.orderCnt || 0
   const realOrderCnt = sigma.realOrderCnt || 0
+  const prevOrderCnt     = prevSigma?.orderCnt ?? null
+  const prevRealOrderCnt = prevSigma?.realOrderCnt ?? null
+
+  // ── 히어로 지표: 유입(UV) 변화 → 사이트 전환율(실주문÷UV) 변화 ──
+  const uvWoW        = prevTotalUV > 0 ? ((totalUV - prevTotalUV) / prevTotalUV * 100) : null
+  const siteConv     = totalUV > 0 ? (realOrderCnt / totalUV * 100) : null
+  const prevSiteConv = (prevTotalUV > 0 && prevRealOrderCnt !== null)
+    ? (prevRealOrderCnt / prevTotalUV * 100)
+    : null
+  const siteConvWoW  = (siteConv !== null && prevSiteConv !== null) ? (siteConv - prevSiteConv) : null
 
   const steps = [
-    { label: 'UV 방문',       value: totalUV,      unit: '명', color: '#B4B2A9', available: totalUV > 0, icon: '🌐' },
-    { label: '장바구니 담기', value: cartCnt,      unit: '건', color: '#7F77DD', available: cartCnt > 0, icon: '🛍' },
-    { label: '주문 시도',     value: orderCnt,     unit: '건', color: '#EF9F27', available: orderCnt > 0, icon: '📝' },
-    { label: '실주문 완료',   value: realOrderCnt, unit: '건', color: '#5DCAA5', available: realOrderCnt > 0, icon: '✅' },
-    { label: '실주문금액',    value: null,         unit: '',   color: '#378ADD', available: true, icon: '💰', amt: sigma.realAmt },
+    { label: 'UV 방문',       value: totalUV,      prev: prevTotalUV || null,    unit: '명', color: '#B4B2A9', available: totalUV > 0, icon: '🌐' },
+    { label: '장바구니 담기', value: cartCnt,      prev: prevCartCnt,            unit: '건', color: '#7F77DD', available: cartCnt > 0, icon: '🛍' },
+    { label: '주문 시도',     value: orderCnt,     prev: prevOrderCnt,           unit: '건', color: '#EF9F27', available: orderCnt > 0, icon: '📝' },
+    { label: '실주문 완료',   value: realOrderCnt, prev: prevRealOrderCnt,       unit: '건', color: '#5DCAA5', available: realOrderCnt > 0, icon: '✅' },
+    { label: '실주문금액',    value: null,         prev: null,                   unit: '',   color: '#378ADD', available: true, icon: '💰', amt: sigma.realAmt },
   ]
 
-  const funnelData = steps.filter(s => s.available || s.label === '장바구니 담기')
-
-  const getConvRate = (prev, curr) => {
+  const convPct = (prev, curr) => {
     if (!prev?.value || !curr?.value) return null
-    return (curr.value / prev.value * 100).toFixed(1)
+    return (curr.value / prev.value * 100)
+  }
+  // 단계 전환율의 전주 대비 %p 변화 (양쪽 모두 prev 값이 있어야 계산)
+  const convWoW = (prev, curr) => {
+    if (!prev?.value || !curr?.value || !prev?.prev || !curr?.prev) return null
+    const now  = curr.value / prev.value * 100
+    const then = curr.prev / prev.prev * 100
+    return now - then
   }
 
   return (
     <div>
       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6B6B68', marginBottom: 12 }}>
-        📊 구매 전환 퍼널
+        📊 유입 → 사이트 전환
         {totalUV === 0 && <span style={{ color: '#A0A09E', fontWeight: 400, marginLeft: 8 }}>— 방문실적 파일 업로드 시 UV 표시</span>}
         {cartCnt === 0 && <span style={{ color: '#A0A09E', fontWeight: 400, marginLeft: 8 }}>— 장바구니 담기수 확인 필요</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
+
+      {/* ── 히어로: 유입(UV) 변화 → 사이트 전환율 변화 ── */}
+      {siteConv !== null && (
+        <div style={{
+          display: 'flex', alignItems: 'stretch', gap: 14, flexWrap: 'wrap',
+          background: 'linear-gradient(135deg, #EFF6FF 0%, #F0FDF8 100%)',
+          border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px', marginBottom: 16,
+        }}>
+          {/* 유입(UV 방문) */}
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: '#6B6B68', fontWeight: 600, marginBottom: 4 }}>
+              📈 유입 <span style={{ color: '#A0A09E', fontWeight: 400 }}>(UV 방문)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: '1.75rem', color: '#0F766E', lineHeight: 1 }}>
+                {fmtComma(totalUV)}<span style={{ fontSize: '0.875rem', fontWeight: 600 }}>명</span>
+              </span>
+              {uvWoW !== null && <WoWBadge wow={uvWoW} suffix="vs 전주" />}
+            </div>
+            <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>
+              {prevTotalUV > 0 ? <>전주 {fmtComma(prevTotalUV)}명</> : '전주 데이터 없음'}
+            </div>
+          </div>
+
+          {/* 화살표 */}
+          <div style={{ display: 'flex', alignItems: 'center', color: '#93C5FD', fontSize: '1.5rem', padding: '0 2px' }}>→</div>
+
+          {/* 사이트 전환율 */}
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: '#6B6B68', fontWeight: 600, marginBottom: 4 }}>
+              🎯 사이트 전환율 <span style={{ color: '#A0A09E', fontWeight: 400 }}>(UV → 실주문)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: '1.75rem', color: '#1D4ED8', lineHeight: 1 }}>
+                {siteConv.toFixed(2)}%
+              </span>
+              {siteConvWoW !== null && <WoWBadge wow={siteConvWoW} kind="pp" suffix="vs 전주" />}
+            </div>
+            <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>
+              {fmtComma(realOrderCnt)}건 ÷ UV {fmtComma(totalUV)}명
+              {prevSiteConv !== null && <span> · 전주 {prevSiteConv.toFixed(2)}%</span>}
+            </div>
+          </div>
+
+          {/* 해석 코멘트 — 유입과 전환을 함께 설명 */}
+          {(siteConvWoW !== null || uvWoW !== null) && (() => {
+            const convDown = siteConvWoW !== null && siteConvWoW < 0
+            const tone = convDown ? { c: '#B91C1C', bg: '#FEF2F2', b: '#FECACA' } : { c: '#15803D', bg: '#F0FDF4', b: '#BBF7D0' }
+            const uvPhrase = uvWoW === null ? null
+              : uvWoW >= 0 ? `유입은 전주 대비 ${uvWoW >= 0 ? '+' : ''}${uvWoW.toFixed(1)}% 늘었`
+              : `유입이 전주 대비 ${uvWoW.toFixed(1)}% 줄었`
+            return (
+              <div style={{
+                flex: '1 1 200px', minWidth: 180, fontSize: '0.75rem', lineHeight: 1.6,
+                color: tone.c, background: tone.bg, border: `1px solid ${tone.b}`,
+                borderRadius: 10, padding: '10px 14px',
+                display: 'flex', alignItems: 'center',
+              }}>
+                <span>
+                  {siteConvWoW !== null && (
+                    convDown
+                      ? <><strong>전환율이 {Math.abs(siteConvWoW).toFixed(2)}%p 빠졌습니다.</strong> </>
+                      : <><strong>전환율이 {siteConvWoW.toFixed(2)}%p 올랐습니다.</strong> </>
+                  )}
+                  {uvPhrase && <>{uvPhrase}고, </>}
+                  {convDown
+                    ? '들어온 유입이 구매로 덜 이어졌어요 — 어느 단계에서 새는지 아래 퍼널에서 확인하세요.'
+                    : '유입 대비 구매 효율이 개선됐어요.'}
+                </span>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* ── 단계별 퍼널 (전환율 + 전주 대비 %p) ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
         {steps.map((s, i) => {
           const prevStep = i > 0 ? steps[i - 1] : null
-          const convRate = i > 0 ? getConvRate(prevStep, s) : null
+          const rate = i > 0 ? convPct(prevStep, s) : null
+          const rateWoW = i > 0 ? convWoW(prevStep, s) : null
           return (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              {/* 화살표 + 전환율 */}
+            <div key={s.label} style={{ display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}>
+              {/* 화살표 + 전환율 + WoW %p */}
               {i > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', minWidth: 44 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', minWidth: 52, marginTop: 30 }}>
                   <div style={{ fontSize: '1.125rem', color: '#C8C8C6' }}>›</div>
-                  {convRate && s.available && prevStep?.available && (
+                  {rate !== null && s.available && prevStep?.available && (
                     <div style={{ fontSize: '0.5625rem', fontWeight: 700, color: '#EF9F27', background: '#FFF9F0', borderRadius: 3, padding: '1px 4px', textAlign: 'center' }}>
-                      {convRate}%
+                      {rate.toFixed(1)}%
+                    </div>
+                  )}
+                  {rateWoW !== null && s.available && prevStep?.available && (
+                    <div style={{ marginTop: 3 }}>
+                      <WoWBadge wow={rateWoW} kind="pp" size="xs" />
                     </div>
                   )}
                 </div>

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { parseSheet, parseCart, parseWishlist, parseSales, parseCustomer, parseVisit, parseStore, parseSalesByDate, parseSearch, parseStoreCorner, detectFileKey } from './utils/parseExcel'
+import { parseSheet, parseCart, parseWishlist, parseSales, parseCustomer, parseVisit, parseStore, parseSalesByDate, parseSearch, parseStoreCorner, parseRestock, parseCoupon, detectFileKey } from './utils/parseExcel'
 import { computeAllDerived, computeSalesByDateMetrics, computeSearchMetrics } from './utils/metrics'
 import { saveState, loadState, exportJSON, importJSON, loadCloudState, saveCloudState, subscribeCloud, cloudEnabled, loadSnapshotIndex, loadSnapshotPayload, subscribeSnapshots, upsertSnapshot } from './utils/storage'
 import { deriveWeekKey } from './utils/weekKey'
@@ -10,8 +10,10 @@ import L4_ExhibitionAnalysis from './components/L4_ExhibitionAnalysis'
 import SnapshotSaveModal from './components/SnapshotSaveModal'
 import SnapshotManageModal from './components/SnapshotManageModal'
 import WeekControl from './components/WeekControl'
+import ScrollToTopButton from './components/ScrollToTopButton'
 import DataQualityBanner from './components/DataQualityBanner'
 import { previousWeekKey, mostRecentWeekKey } from './utils/weekNav'
+import { mergePayloads, listPeriods, weekKeysInPeriod, previousPeriodKey, periodLabel } from './utils/aggregatePeriod'
 import { checkDataQuality } from './utils/dataQuality'
 import './index.css'
 
@@ -28,6 +30,8 @@ const EXTRA_FILES = [
   { key: 'visit',        label: '방문실적',        parser: parseVisit },
   { key: 'store',        label: '매장 종합 실적',  parser: parseStore },
   { key: 'storeCorner',  label: '매장코너 실적',   parser: parseStoreCorner },
+  { key: 'restock',      label: '재입고 알림내역', parser: parseRestock },
+  { key: 'coupon',       label: '쿠폰 실적',       parser: parseCoupon },
 ]
 
 const PARSER_MAP = {
@@ -40,10 +44,12 @@ const PARSER_MAP = {
   visit:       parseVisit,
   store:       parseStore,
   storeCorner: parseStoreCorner,
+  restock:     parseRestock,
+  coupon:      parseCoupon,
 }
 const ALL_FILES = [...CORE_FILES, ...EXTRA_FILES]
 
-const EMPTY_WEEK = { cart: null, wishlist: null, sales: null, customer: null, salesByDate: null, search: null, visit: null, store: null, storeCorner: null }
+const EMPTY_WEEK = { cart: null, wishlist: null, sales: null, customer: null, salesByDate: null, search: null, visit: null, store: null, storeCorner: null, restock: null, coupon: null }
 
 const menuItemStyle = {
   textAlign: 'left', padding: '8px 10px', borderRadius: 6, border: 'none',
@@ -53,7 +59,7 @@ const menuItemStyle = {
 
 // ─── 탭 정의 ─────────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'l1', label: 'L1 헬스체크',  icon: '📊', desc: 'KPI · 채널 · 퍼널 · 고객' },
+  { id: 'l1', label: 'L1 종합 진단',  icon: '📊', desc: '유입→사이트 전환 · KPI · 채널 · 고객' },
   { id: 'l2', label: 'L2 상품 분석', icon: '🛍', desc: '판매/관심/장바구니 Top · PV갭 · IP · 카테고리' },
   { id: 'l3', label: 'L3 구역별 효율', icon: '🎪', desc: '기획전·카테고리·검색 구역별 노출/클릭/CTR/매출 효율 — MD별 담당 기획전 드릴다운' },
   { id: 'l4', label: 'L4 액션 패널', icon: '🎯', desc: '분석 기반 자동 감지 인사이트 & 액션 카드' },
@@ -104,6 +110,8 @@ export default function App() {
   const [snapshotIndex, setSnapshotIndex] = useState([])
   const [selectedWeekKey, setSelectedWeekKey] = useState(null) // 화면에 표시 중인 주
   const [compareWeekKey, setCompareWeekKey] = useState(null)   // null = 자동(직전 주)
+  const [periodMode, setPeriodMode] = useState('week')         // week | month | quarter (기간 합산 보기)
+  const [periodKey, setPeriodKey] = useState(null)             // 선택된 월/분기 키
   const [pendingNewWeek, setPendingNewWeek] = useState(null)   // {payload, period, filesPresent} | null — 기간 인식 실패 시 모달 버퍼
   const viewingSnapshotRef = useRef(true)    // 주차 모델: 항상 스냅샷 열람 → 라이브 저장/덮어쓰기 차단
   const payloadCacheRef = useRef(new Map())  // 간단 LRU (최대 6개)
@@ -243,6 +251,39 @@ export default function App() {
     if (selectedWeekKey) applySelectedWeek(selectedWeekKey, compareKey)
   }
 
+  // 기간 합산(월/분기) 보기 — 해당 기간 주차들을 합쳐 thisWeek, 직전 기간을 lastWeek 로.
+  const applySelectedPeriod = async (mode, pKey, indexOverride) => {
+    setError(null)
+    const idx = indexOverride || snapshotIndex
+    if (!pKey) { setThisWeek({ ...EMPTY_WEEK }); setLastWeek({ ...EMPTY_WEEK }); return }
+    const weeks = weekKeysInPeriod(idx, mode, pKey)
+    const merged = mergePayloads(await Promise.all(weeks.map(getPayload))) || { ...EMPTY_WEEK }
+    const prevKey = previousPeriodKey(idx, mode, pKey)
+    const prevWeeks = prevKey ? weekKeysInPeriod(idx, mode, prevKey) : []
+    const prevMerged = prevWeeks.length
+      ? (mergePayloads(await Promise.all(prevWeeks.map(getPayload))) || { ...EMPTY_WEEK })
+      : { ...EMPTY_WEEK }
+    viewingSnapshotRef.current = true
+    lastSyncedSig.current = sigOf(merged, prevMerged)
+    setThisWeek(merged)
+    setLastWeek(prevMerged)
+  }
+
+  // 기간 단위 토글 (주/월/분기)
+  const handlePeriodModeChange = (mode) => {
+    setPeriodMode(mode)
+    if (mode === 'week') {
+      const wk = selectedWeekKey || mostRecentWeekKey(snapshotIndex)
+      if (wk) applySelectedWeek(wk, compareWeekKey)
+      return
+    }
+    const periods = listPeriods(snapshotIndex, mode)
+    const pk = periods[0]?.key || null
+    setPeriodKey(pk)
+    applySelectedPeriod(mode, pk)
+  }
+  const handlePeriodKeyChange = (pKey) => { setPeriodKey(pKey); applySelectedPeriod(periodMode, pKey) }
+
   // ④ 스냅샷 인덱스 로드 → 가장 최근 주 자동 표시 + 추가/수정/삭제 실시간 반영
   useEffect(() => {
     if (!cloudEnabled) return
@@ -303,6 +344,8 @@ export default function App() {
         return
       }
       if (res.shrunk) setBulkLog([...log, { file: '⚠ 용량 안내', status: 'skip', msg: '데이터가 커서 매장코너 상품 디테일은 코너 단위로 축약 저장했습니다.' }])
+      // 방금 저장한 payload 로 캐시 갱신 — 안 하면 다른 주로 갔다 돌아올 때 옛 데이터가 다시 표시된다.
+      payloadCacheRef.current.set(selectedWeekKey, merged)
       await refreshIndex()
     }
     setLoading(false)
@@ -331,6 +374,8 @@ export default function App() {
         return
       }
       if (res.shrunk) setBulkLog([...log, { file: '⚠ 용량 안내', status: 'skip', msg: '데이터가 커서 매장코너 상품 디테일은 코너 단위로 축약 저장했습니다.' }])
+      // 방금 저장한 payload 로 캐시 시드 — applySelectedWeek 가 옛 캐시 대신 새 데이터를 쓰도록.
+      payloadCacheRef.current.set(dk.weekKey, merged)
       const idx = await refreshIndex()
       setCompareWeekKey(null)
       await applySelectedWeek(dk.weekKey, null, idx)
@@ -435,6 +480,19 @@ export default function App() {
               </h1>
               <div style={{ fontSize: '0.75rem', color: '#6B6B68', marginTop: 5, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 {cloudEnabled && (
+                  <span style={{ display: 'inline-flex', border: '1px solid #BFDBFE', borderRadius: 14, overflow: 'hidden' }}>
+                    {[['week', '주'], ['month', '월'], ['quarter', '분기']].map(([m, lbl]) => {
+                      const on = periodMode === m
+                      return (
+                        <button key={m} onClick={() => handlePeriodModeChange(m)} style={{
+                          border: 'none', cursor: 'pointer', padding: '4px 11px', fontSize: '0.75rem', fontWeight: 700,
+                          background: on ? '#378ADD' : '#EFF6FF', color: on ? '#fff' : '#1D4ED8',
+                        }}>{lbl}</button>
+                      )
+                    })}
+                  </span>
+                )}
+                {cloudEnabled && periodMode === 'week' && (
                   <WeekControl
                     index={snapshotIndex}
                     selectedWeekKey={selectedWeekKey}
@@ -447,6 +505,19 @@ export default function App() {
                     onManage={() => setShowManageModal(true)}
                     onEditCurrent={() => setShowSnapshotModal(true)}
                   />
+                )}
+                {cloudEnabled && periodMode !== 'week' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <select value={periodKey || ''} onChange={e => handlePeriodKeyChange(e.target.value)} style={{
+                      fontSize: '0.78125rem', fontWeight: 700, padding: '4px 10px', borderRadius: 14,
+                      border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer',
+                    }}>
+                      {listPeriods(snapshotIndex, periodMode).map(p => (
+                        <option key={p.key} value={p.key}>{p.label} ({p.weeks.length}주)</option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: '0.625rem', color: '#A0A09E' }}>합산 · UV·고객수는 중복포함</span>
+                  </span>
                 )}
                 {thisPeriod && <span>기간: <strong>{thisPeriod}</strong></span>}
                 {lastPeriod && <span style={{ color: '#A0A09E' }}>비교: <strong>{lastPeriod}</strong></span>}
@@ -676,6 +747,7 @@ export default function App() {
           filesPresent={pendingNewWeek?.filesPresent ?? ALL_FILES.filter(f => thisWeek[f.key]).map(f => f.key)}
           onClose={() => { setShowSnapshotModal(false); setPendingNewWeek(null) }}
           onSaved={async (savedKey) => {
+            payloadCacheRef.current.delete(savedKey)  // 기존 주에 저장됐을 수 있으니 캐시 무효화 → DB 최신본 재로드
             const idx = await refreshIndex()
             setCompareWeekKey(null)
             await applySelectedWeek(savedKey, null, idx)
@@ -704,6 +776,8 @@ export default function App() {
           }}
         />
       )}
+
+      <ScrollToTopButton />
     </div>
   )
 }

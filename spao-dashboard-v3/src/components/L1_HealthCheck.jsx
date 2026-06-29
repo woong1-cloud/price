@@ -8,6 +8,7 @@ import WoWBadge from './common/WoWBadge'
 import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
 import SalesScoreboard from './SalesScoreboard'
 import SearchSection from './SearchSection'
+import CouponSection from './CouponSection'
 
 // ─── 색상 헬퍼 ───────────────────────────────────────────────────────────────
 const CHANNEL_COLORS = ['#378ADD', '#5DCAA5', '#7F77DD', '#EF9F27', '#E24B4A', '#B4B2A9']
@@ -727,6 +728,9 @@ export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetr
 
       {/* ── 검색 실적 ── */}
       <SearchSection searchMetrics={searchMetrics} />
+
+      {/* ── 쿠폰 효율 (프로모션) ── */}
+      <CouponSection couponMetrics={derived.couponMetrics} />
     </div>
   )
 }

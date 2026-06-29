@@ -88,6 +88,8 @@ const IP_MAP = new Map([
   ['케로로', '케로로'], ['개구리동사케로로', '케로로'],
   // 루니툰즈
   ['트위티', '트위티'], ['tweety', '트위티'],
+  // 루시 (신규 콜라보)
+  ['lucy', 'LUCY'], ['루시', 'LUCY'],
 ])
 
 function isExcluded(token) {
@@ -115,12 +117,28 @@ export function getIP(name) {
   while ((m = re.exec(src)) !== null) tokens.push(m[1].trim())
 
   for (const token of tokens) {
-    if (isExcluded(token)) continue
     const tLower = token.toLowerCase()
+    // 알려진 IP 는 제외 규칙보다 우선 매칭 (LUCY 같은 영문 IP 가 기능성 태그로 오인되어
+    // 걸러지는 것을 방지).
     for (const [key, displayName] of IP_MAP) {
       if (tLower.includes(key)) return displayName
     }
+    if (isExcluded(token)) continue
     // 엄격 모드: 매핑되지 않은 브래킷은 콜라보로 보지 않는다 (일반 상품 오인 방지)
   }
   return null
+}
+
+// 콜라보 상품의 IP 표시명 추출 (재입고/콜라보 집계 전용).
+// getIP 표준 매핑을 우선 쓰되, 매핑 안 된 콜라보 브래킷(호빵맨·마이페이브아카이브 등)은
+// 첫 유효 브래킷 토큰을 그대로 IP 이름으로 쓴다. 콜라보(styleCode U) 상품에만 적용할 것.
+export function extractCollabIP(name) {
+  const mapped = getIP(name)
+  if (mapped) return mapped
+  const tokens = [...String(name || '').matchAll(/\[([^\]]+)\]/g)].map(m => m[1].trim())
+  for (const t of tokens) {
+    if (isExcluded(t)) continue
+    return t
+  }
+  return '기타 콜라보'
 }
