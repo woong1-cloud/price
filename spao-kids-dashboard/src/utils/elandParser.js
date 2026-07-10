@@ -1,7 +1,10 @@
 import { excelSerialToDateStr } from './excelDate'
 
-function toStr(v) { return v == null ? '' : String(v) }
-function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+function toStr(v) { return v == null ? '' : String(v).trim() }
+function toNum(v) {
+  const n = parseFloat(String(v ?? '').replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
 
 // 상품명 끝의 '_스타일코드' 추출
 function extractStyleCode(name) {
