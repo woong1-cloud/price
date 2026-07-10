@@ -574,8 +574,13 @@ Expected: FAIL — `Cannot find module './elandParser'`.
 ```js
 import { excelSerialToDateStr } from './excelDate'
 
-function toStr(v) { return v == null ? '' : String(v) }
-function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+// (2026-07-10 실행 중 코드 리뷰로 수정됨: trim 누락 시 상태값 공백으로 취소판정 실패,
+//  콤마 미제거 시 "39,900" 같은 값이 0으로 조용히 깨지는 문제 발견 — 아래가 수정판)
+function toStr(v) { return v == null ? '' : String(v).trim() }
+function toNum(v) {
+  const n = parseFloat(String(v ?? '').replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
 
 // 상품명 끝의 '_스타일코드' 추출
 function extractStyleCode(name) {
@@ -713,8 +718,13 @@ Expected: FAIL — `Cannot find module './gonghomParser'`.
 ```js
 import { excelSerialToDateStr } from './excelDate'
 
-function toStr(v) { return v == null ? '' : String(v) }
-function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+// (2026-07-10 실행 중 코드 리뷰로 수정됨: trim 누락 시 상태값 공백으로 취소판정 실패,
+//  콤마 미제거 시 "39,900" 같은 값이 0으로 조용히 깨지는 문제 발견 — 아래가 수정판)
+function toStr(v) { return v == null ? '' : String(v).trim() }
+function toNum(v) {
+  const n = parseFloat(String(v ?? '').replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
 
 function extractStyleCode(name) {
   const m = toStr(name).match(/_([A-Za-z0-9]+)\s*$/)
@@ -855,8 +865,13 @@ Expected: FAIL — `Cannot find module './naverParser'`.
 ```js
 import { excelSerialToDateStr } from './excelDate'
 
-function toStr(v) { return v == null ? '' : String(v) }
-function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+// (2026-07-10 실행 중 코드 리뷰로 수정됨: trim 누락 시 상태값 공백으로 취소판정 실패,
+//  콤마 미제거 시 "39,900" 같은 값이 0으로 조용히 깨지는 문제 발견 — 아래가 수정판)
+function toStr(v) { return v == null ? '' : String(v).trim() }
+function toNum(v) {
+  const n = parseFloat(String(v ?? '').replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
 
 // 네이버 상품명은 언더바 없이 스타일코드가 마지막 공백 구분 토큰으로 붙는다(공홈/이랜드몰과 다름).
 function extractStyleCode(name) {
