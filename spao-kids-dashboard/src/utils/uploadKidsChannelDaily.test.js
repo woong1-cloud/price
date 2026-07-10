@@ -41,4 +41,14 @@ describe('uploadKidsChannelDaily', () => {
     ])
     expect(result).toEqual({ ok: false, error: 'boom' })
   })
+
+  it('count가 null이면 payload 길이로 대체한다', async () => {
+    const { client } = makeMockClient({ count: null })
+    const rows = [
+      { date: '2026-07-01', channel: '이랜드몰', discountAmt: null, orderCnt: 1, orderAmt: 1, realOrderCnt: 1, realAmt: 1, cancelAmt: 0 },
+      { date: '2026-07-02', channel: '이랜드몰', discountAmt: null, orderCnt: 1, orderAmt: 1, realOrderCnt: 1, realAmt: 1, cancelAmt: 0 },
+    ]
+    const result = await uploadKidsChannelDaily(client, rows)
+    expect(result).toEqual({ ok: true, upserted: 2 })
+  })
 })
