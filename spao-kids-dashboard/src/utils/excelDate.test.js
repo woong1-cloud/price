@@ -14,6 +14,7 @@ describe('excelSerialToDateStr', () => {
 
   it('숫자도 문자열도 아니면 빈 문자열을 반환한다', () => {
     expect(excelSerialToDateStr(undefined)).toBe('')
+    expect(excelSerialToDateStr(null)).toBe('')
     expect(excelSerialToDateStr('')).toBe('')
   })
 })
