@@ -42,6 +42,7 @@ export function parseNaverOrders(rows) {
   return items
 }
 
+// '취소' 포함 여부로 판정 — 실제 취소 표본을 아직 못 봐서 문자열을 확인하면 재검증 필요(계획 문서 참고).
 export function isNaverCanceled(item) {
   return item.status.includes('취소')
 }
