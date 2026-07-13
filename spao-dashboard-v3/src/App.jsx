@@ -3,6 +3,7 @@ import { parseSheet, parseCart, parseWishlist, parseSales, parseCustomer, parseV
 import { computeAllDerived, computeSalesByDateMetrics, computeSearchMetrics } from './utils/metrics'
 import { saveState, loadState, exportJSON, importJSON, loadCloudState, saveCloudState, subscribeCloud, cloudEnabled, loadSnapshotIndex, loadSnapshotPayload, subscribeSnapshots, upsertSnapshot } from './utils/storage'
 import { deriveWeekKey } from './utils/weekKey'
+import { filterPayloadByGender } from './utils/kidsFilter'
 import L1_HealthCheck from './components/L1_HealthCheck'
 import L2_ProductAnalysis from './components/L2_ProductAnalysis'
 import L3_ActionPanel from './components/L3_ActionPanel'
@@ -11,6 +12,7 @@ import SnapshotSaveModal from './components/SnapshotSaveModal'
 import SnapshotManageModal from './components/SnapshotManageModal'
 import WeekControl from './components/WeekControl'
 import ScrollToTopButton from './components/ScrollToTopButton'
+import IngestStatusBadge from './components/IngestStatusBadge'
 import DataQualityBanner from './components/DataQualityBanner'
 import { previousWeekKey, mostRecentWeekKey } from './utils/weekNav'
 import { mergePayloads, listPeriods, weekKeysInPeriod, previousPeriodKey, periodLabel } from './utils/aggregatePeriod'
@@ -63,6 +65,7 @@ const TABS = [
   { id: 'l2', label: 'L2 상품 분석', icon: '🛍', desc: '판매/관심/장바구니 Top · PV갭 · IP · 카테고리' },
   { id: 'l3', label: 'L3 구역별 효율', icon: '🎪', desc: '기획전·카테고리·검색 구역별 노출/클릭/CTR/매출 효율 — MD별 담당 기획전 드릴다운' },
   { id: 'l4', label: 'L4 액션 패널', icon: '🎯', desc: '분석 기반 자동 감지 인사이트 & 액션 카드' },
+  { id: 'kids', label: '키즈', icon: '🧒', desc: '스타일코드 성별코드=키즈 상품만 필터링한 실적(자사몰 데이터 기준)' },
 ]
 
 // ─── TabButton ────────────────────────────────────────────────────────────────
@@ -422,6 +425,16 @@ export default function App() {
     })
   }, [coreLoaded, thisWeek, lastWeek, hasLastWeek])
 
+  // 키즈 탭: styleCode 성별코드=K인 상품만 걸러 같은 computeAllDerived 파이프라인을 재사용.
+  // salesByDate/visit/store/customer 등 상품 단위가 없는 데이터셋은 필터 유틸이 null 처리하므로
+  // L1~L4는 해당 섹션을 "데이터 없음"으로 자연스럽게 비워 보여준다(오표시 방지).
+  const kidsDerived = useMemo(() => {
+    if (!coreLoaded) return null
+    const kThisWeek = filterPayloadByGender(thisWeek, 'K')
+    const kLastWeek = hasLastWeek ? filterPayloadByGender(lastWeek, 'K') : null
+    return computeAllDerived({ thisWeek: kThisWeek, lastWeek: kLastWeek, visit: null, store: null })
+  }, [coreLoaded, thisWeek, lastWeek, hasLastWeek])
+
   const salesByDateMetrics = useMemo(() => {
     if (!thisWeek.salesByDate) return null
     return computeSalesByDateMetrics(thisWeek.salesByDate, lastWeek.salesByDate || null)
@@ -506,6 +519,7 @@ export default function App() {
                     onEditCurrent={() => setShowSnapshotModal(true)}
                   />
                 )}
+                {cloudEnabled && <IngestStatusBadge />}
                 {cloudEnabled && periodMode !== 'week' && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <select value={periodKey || ''} onChange={e => handlePeriodKeyChange(e.target.value)} style={{
@@ -736,6 +750,21 @@ export default function App() {
             {activeTab === 'l2' && derived && <L2_ProductAnalysis derived={derived} />}
             {activeTab === 'l3' && <L4_ExhibitionAnalysis storeCorner={thisWeek.storeCorner} prevStoreCorner={lastWeek.storeCorner} />}
             {activeTab === 'l4' && derived && <L3_ActionPanel derived={derived} storeCorner={thisWeek.storeCorner} />}
+            {activeTab === 'kids' && kidsDerived && (
+              <>
+                <div style={{
+                  background: '#FFF9F0', border: '1px solid #FDE68A', borderRadius: 8,
+                  padding: '10px 16px', marginBottom: 16, fontSize: '0.8125rem', color: '#B45309',
+                }}>
+                  🧒 스타일코드 성별코드가 <strong>키즈</strong>인 상품만 걸러 재계산한 값입니다(자사몰 데이터 기준).
+                  채널·방문·검색·쿠폰·고객 성별처럼 상품 단위로 쪼갤 수 없는 지표는 이 화면에서 비어 있습니다.
+                </div>
+                <L1_HealthCheck derived={kidsDerived} salesByDateMetrics={null} searchMetrics={null} />
+                <div style={{ marginTop: 32 }}>
+                  <L2_ProductAnalysis derived={kidsDerived} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

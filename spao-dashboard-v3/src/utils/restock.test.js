@@ -143,6 +143,40 @@ describe('computeRestockMetrics', () => {
     expect(m.estBaseAll * 0.3).toBe(600000)
   })
 
+  it('상품별 단품(skus) 원본을 보존한다 (펼침·내보내기용)', () => {
+    const restock = parseRestock([
+      HEADER,
+      ['1', '상품 A_SPRWG25G01', '10001', '(19)Black/S', 3, 'v', '신청'],
+      ['1', '상품 A_SPRWG25G01', '10002', '(19)Black/M', 5, 'v', '신청'],
+    ])
+    const m = computeRestockMetrics(restock, null, [])
+    const p = m.products[0]
+    expect(p.skuCount).toBe(2)
+    expect(p.skus).toHaveLength(2)
+    // 단품 필드가 그대로 보존
+    const bySize = Object.fromEntries(p.skus.map(s => [s.size, s]))
+    expect(bySize.S.optionNo).toBe('10001')
+    expect(bySize.S.optionName).toBe('(19)Black/S')
+    expect(bySize.M.cnt).toBe(5)
+  })
+
+  it('단품(SKU) 단위로 전주 대기건수를 단품번호 매칭한다', () => {
+    const cur = parseRestock([
+      HEADER,
+      ['1', '상품 A_SPRWG25G01', '10001', '(19)Black/S', 5, 'v', '신청'],
+      ['1', '상품 A_SPRWG25G01', '10002', '(19)Black/M', 8, 'v', '신청'], // 신규 단품(전주 없음)
+    ])
+    const prev = parseRestock([
+      HEADER,
+      ['1', '상품 A_SPRWG25G01', '10001', '(19)Black/S', 3, 'v', '신청'], // 전주엔 S만 있었음
+    ])
+    const m = computeRestockMetrics(cur, prev, [])
+    const p = m.products[0]
+    const s = Object.fromEntries(p.skus.map(x => [x.size, x]))
+    expect(s.S.prevCnt).toBe(3)   // 단품번호 10001 매칭
+    expect(s.M.prevCnt).toBeNull() // 10002 는 전주에 없던 신규 단품
+  })
+
   it('데이터 없으면 null', () => {
     expect(computeRestockMetrics(null)).toBeNull()
     expect(computeRestockMetrics({ items: [] })).toBeNull()

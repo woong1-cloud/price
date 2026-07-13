@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>spao-dashboard-v2</title>
+
+    <!-- 보안: 번들에서 넣을 수 있는 메타 태그 (서버 헤더 HSTS/X-Frame-Options 등은 noavibe 설정에서 별도 추가) -->
+    <!-- CSP: 외부 통신은 self + Supabase 만 허용(데이터 유출 경로 차단). 인라인 스타일/스크립트는
+         앱 동작을 위해 허용(깨짐 방지). frame-ancestors 는 메타에서 무시되므로 서버 헤더로 별도 적용 필요. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <title>SPAO 자사몰 주간 실적 대시보드</title>
   </head>
   <body>
     <div id="root"></div>

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
+import * as XLSX from 'xlsx'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   ResponsiveContainer, LabelList, PieChart, Pie, Legend,
@@ -671,6 +672,7 @@ const CONV_OPTIONS = [0.1, 0.2, 0.3]
 
 function RestockSection({ restockMetrics, hasWoW }) {
   const [expanded, setExpanded] = useState(false)
+  const [openKey, setOpenKey] = useState(null)   // 단품 상세가 펼쳐진 상품
   const [cls, setCls] = useState('all')      // all | collab | apparel
   const [ipFilter, setIpFilter] = useState(null)
   const [conv, setConv] = useState(0.3)      // 예상매출 가정 전환율
@@ -684,6 +686,37 @@ function RestockSection({ restockMetrics, hasWoW }) {
   const pool = filtered.slice(0, 50)                 // 그룹 내 최대 50개 관리
   const top  = expanded ? pool : pool.slice(0, 20)   // 기본 20개 노출
 
+  // 내보내기(취합) — 현재 필터(그룹/IP) 기준, 단품(SKU) 단위 1행씩 그대로
+  const handleExport = () => {
+    const rows = []
+    for (const p of filtered) {
+      for (const s of (p.skus || [])) {
+        rows.push({
+          '상품번호': p.productNo,
+          '상품명': cleanName(p.name),
+          '스타일코드': p.styleCode,
+          '품목': p.itemName || '',
+          '구분': p.isCollab ? '콜라보' : '어패럴',
+          'IP': p.ip || '',
+          '단품번호': s.optionNo,
+          '단품명': s.optionName,
+          '컬러': s.color,
+          '사이즈': s.size,
+          '대기건수': s.cnt,
+          '전주 재입고 알림 수': hasWoW ? (s.prevCnt == null ? '' : s.prevCnt) : '',
+          '전주대비(%)': (hasWoW && p.wow != null) ? Number(p.wow.toFixed(1)) : '',
+          '판매중': p.hot ? 'Y' : '',
+        })
+      }
+    }
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    const scopeLabel = cls === 'all' ? '전체' : cls === 'collab' ? (ipFilter || '콜라보') : '어패럴'
+    XLSX.utils.book_append_sheet(wb, ws, '재입고알림')
+    const today = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `재입고알림_취합_${scopeLabel}_${today}.xlsx`)
+  }
+
   const hasPrice = priceCoverage && priceCoverage.overallUnit > 0
   const segs = [
     { id: 'all',     label: '전체',   icon: '📦', color: '#E24B4A', cnt: summary.totalCnt,         productCount: summary.productCount,             wow: summary.totalWoW,         estBase: estBaseAll },
@@ -695,9 +728,16 @@ function RestockSection({ restockMetrics, hasWoW }) {
     <div className="card p-5" style={{ borderTop: '3px solid #E24B4A' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
         <SectionHeader icon="🔥" title="재입고 대기 수요 (품절 기회손실)" color="#E24B4A" perspective="MD" />
-        <span style={{ fontSize: '0.6875rem', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
-          재입고 알림 기준 · 사고 싶었는데 품절
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={handleExport} title="현재 보기 기준 · 단품 단위로 엑셀 내보내기" style={{
+            cursor: 'pointer', font: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5,
+            border: '1px solid #BBF7D0', background: '#F0FDF8', color: '#1A8060',
+            borderRadius: 6, padding: '4px 10px', fontSize: '0.6875rem', fontWeight: 700,
+          }}>⬇ 내보내기</button>
+          <span style={{ fontSize: '0.6875rem', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+            재입고 알림 기준 · 사고 싶었는데 품절
+          </span>
+        </div>
       </div>
 
       {/* 분류 스코어보드 (클릭 = 그룹 필터) */}
@@ -820,43 +860,91 @@ function RestockSection({ restockMetrics, hasWoW }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
           <thead>
             <tr style={{ background: '#F8F8F7', borderBottom: '1px solid #E8E8E6' }}>
-              {['#', '상품', '품목', '대기건수', hasWoW ? '전주대비' : '', '단품', ...(hasPrice ? ['예상매출'] : []), '사이즈별 수요'].filter(Boolean).map((h, i) => (
+              {['#', '상품', '품목', '대기건수', hasWoW ? '전주 대기건수' : '', hasWoW ? '전주대비' : '', '단품', ...(hasPrice ? ['예상매출'] : []), '사이즈별 수요'].filter(Boolean).map((h, i) => (
                 <th key={h + i} style={{ padding: '9px 12px', textAlign: i === 1 ? 'left' : i <= 1 ? 'center' : 'right', fontWeight: 600, color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {top.length === 0 && (
-              <tr><td colSpan={(hasWoW ? 7 : 6) + (hasPrice ? 1 : 0)} style={{ padding: '24px 12px', textAlign: 'center', color: '#A0A09E', fontSize: '0.8125rem' }}>
+              <tr><td colSpan={(hasWoW ? 8 : 6) + (hasPrice ? 1 : 0)} style={{ padding: '24px 12px', textAlign: 'center', color: '#A0A09E', fontSize: '0.8125rem' }}>
                 이 그룹에는 재입고 대기 상품이 없습니다.
               </td></tr>
             )}
-            {top.map((p, i) => (
-              <tr key={p.productNo || p.name} style={{ borderBottom: '1px solid #F0F0EE', background: p.hot ? '#FFFBFB' : 'transparent' }}>
-                <td style={{ padding: '9px 12px', textAlign: 'center', color: '#A0A09E', fontWeight: 700 }}>{i + 1}</td>
-                <td style={{ padding: '9px 12px', maxWidth: 280 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {p.hot && <span title="판매 중인데 품절 — 최우선 리오더" style={{ fontSize: '0.75rem' }}>⭐</span>}
-                    <span style={{ fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cleanName(p.name)}</span>
-                  </div>
-                </td>
-                <td style={{ padding: '9px 12px', textAlign: 'center', color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{p.itemName || '—'}</td>
-                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#E24B4A' }}>{fmtComma(p.cnt)}<span style={{ fontSize: '0.6875rem', fontWeight: 500 }}>명</span></td>
-                {hasWoW && (
-                  <td style={{ padding: '9px 12px', textAlign: 'right' }}>
-                    {p.isNewDemand ? <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 700, background: '#FFF9F0', borderRadius: 4, padding: '1px 6px' }}>신규</span> : <WoWBadge wow={p.wow} size="xs" />}
-                  </td>
-                )}
-                <td style={{ padding: '9px 12px', textAlign: 'right', color: '#6B6B68' }}>{p.skuCount}</td>
-                {hasPrice && (
-                  <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <span style={{ fontWeight: 700, color: '#1A8060' }}>~{fmt억(p.estBase * conv)}</span>
-                    {!p.hasPrice && <span title="판매 이력이 없어 전체 평균단가로 추정" style={{ fontSize: '0.5625rem', color: '#B45309', marginLeft: 4 }}>≈</span>}
-                  </td>
-                )}
-                <td style={{ padding: '9px 12px' }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><SizeBar sizes={p.sizes} /></div></td>
-              </tr>
-            ))}
+            {top.map((p, i) => {
+              const key = p.productNo || p.name
+              const isOpen = openKey === key
+              const colCount = (hasWoW ? 8 : 6) + (hasPrice ? 1 : 0)
+              const skus = [...(p.skus || [])].sort((a, b) => b.cnt - a.cnt)
+              return (
+                <Fragment key={key}>
+                  <tr onClick={() => setOpenKey(isOpen ? null : key)}
+                    title="클릭하면 단품별 상세가 열립니다"
+                    style={{ borderBottom: isOpen ? 'none' : '1px solid #F0F0EE', background: isOpen ? '#FFF7F7' : (p.hot ? '#FFFBFB' : 'transparent'), cursor: 'pointer' }}>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', color: '#A0A09E', fontWeight: 700 }}>{i + 1}</td>
+                    <td style={{ padding: '9px 12px', maxWidth: 280 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ color: '#C8C8C6', fontSize: '0.6875rem', width: 10, flexShrink: 0 }}>{isOpen ? '▾' : '▸'}</span>
+                        {p.hot && <span title="판매 중인데 품절 — 최우선 리오더" style={{ fontSize: '0.75rem' }}>⭐</span>}
+                        <span style={{ fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cleanName(p.name)}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', color: '#6B6B68', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{p.itemName || '—'}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#E24B4A' }}>{fmtComma(p.cnt)}<span style={{ fontSize: '0.6875rem', fontWeight: 500 }}>명</span></td>
+                    {hasWoW && (
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: '#A0A09E' }}>
+                        {p.isNewDemand ? '—' : `${fmtComma(p.prevCnt)}명`}
+                      </td>
+                    )}
+                    {hasWoW && (
+                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                        {p.isNewDemand ? <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 700, background: '#FFF9F0', borderRadius: 4, padding: '1px 6px' }}>신규</span> : <WoWBadge wow={p.wow} size="xs" />}
+                      </td>
+                    )}
+                    <td style={{ padding: '9px 12px', textAlign: 'right', color: '#6B6B68' }}>{p.skuCount}</td>
+                    {hasPrice && (
+                      <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 700, color: '#1A8060' }}>~{fmt억(p.estBase * conv)}</span>
+                        {!p.hasPrice && <span title="판매 이력이 없어 전체 평균단가로 추정" style={{ fontSize: '0.5625rem', color: '#B45309', marginLeft: 4 }}>≈</span>}
+                      </td>
+                    )}
+                    <td style={{ padding: '9px 12px' }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><SizeBar sizes={p.sizes} /></div></td>
+                  </tr>
+                  {isOpen && (
+                    <tr style={{ borderBottom: '1px solid #F0F0EE', background: '#FFF7F7' }}>
+                      <td colSpan={colCount} style={{ padding: '4px 12px 12px 40px' }}>
+                        <div style={{ fontSize: '0.6875rem', color: '#B91C1C', fontWeight: 700, margin: '6px 0 6px' }}>
+                          단품별 재입고 대기 · {p.styleCode} · 단품 {p.skuCount}개
+                        </div>
+                        <table style={{ width: '100%', maxWidth: 620, borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                          <thead>
+                            <tr style={{ color: '#A0A09E' }}>
+                              {['단품번호', '단품명(컬러/사이즈)', '대기건수', ...(hasWoW ? ['전주 대기건수'] : [])].map((h, j) => (
+                                <th key={h} style={{ textAlign: j === 2 || j === 3 ? 'right' : 'left', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #F0D9D9' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {skus.map((s, j) => (
+                              <tr key={s.optionNo || j} style={{ borderBottom: '1px solid #F6E7E7' }}>
+                                <td style={{ padding: '4px 8px', color: '#6B6B68', whiteSpace: 'nowrap' }}>{s.optionNo || '—'}</td>
+                                <td style={{ padding: '4px 8px', color: '#1A1A1A' }}>{s.optionName || '—'}</td>
+                                <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 700, color: '#E24B4A' }}>{fmtComma(s.cnt)}명</td>
+                                {hasWoW && (
+                                  <td style={{ padding: '4px 8px', textAlign: 'right', color: '#A0A09E' }}>
+                                    {s.prevCnt == null ? '신규' : `${fmtComma(s.prevCnt)}명`}
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>

@@ -358,12 +358,17 @@ export function computeRestockMetrics(restock, prevRestock = null, salesItems = 
       const key = it.productNo || it.name
       let r = map.get(key)
       if (!r) {
-        r = { productNo: it.productNo, name: it.name, styleCode: it.styleCode, cnt: 0, skuCount: 0, sizes: {} }
+        r = { productNo: it.productNo, name: it.name, styleCode: it.styleCode, cnt: 0, skuCount: 0, sizes: {}, skus: [] }
         map.set(key, r)
       }
       r.cnt += it.cnt
       r.skuCount += 1
       if (it.size) r.sizes[it.size] = (r.sizes[it.size] || 0) + it.cnt
+      // 단품(SKU) 원본 보존 — 펼침 상세 + 내보내기(취합)용
+      r.skus.push({
+        optionNo: it.optionNo, optionName: it.optionName,
+        color: it.color, size: it.size, cnt: it.cnt,
+      })
     }
     return map
   }
@@ -371,6 +376,16 @@ export function computeRestockMetrics(restock, prevRestock = null, salesItems = 
   const curMap  = roll(restock.items)
   const prevMap = prevRestock?.items?.length ? roll(prevRestock.items) : null
   const hasPrev = !!prevMap
+
+  // 단품(SKU) 단위 전주 대기건수 — 단품번호(optionNo)로 매칭.
+  // 같은 단품번호가 다른 상품에서 재사용되는 걸 막기 위해 "상품키|단품번호" 로 키를 만든다.
+  const prevSkuMap = new Map()
+  if (prevRestock?.items?.length) {
+    for (const it of prevRestock.items) {
+      const productKey = it.productNo || it.name
+      if (it.optionNo) prevSkuMap.set(`${productKey}|${it.optionNo}`, it.cnt)
+    }
+  }
 
   // 판매 styleCode별 실주문금액·수량 → 단가(realAmt/qty) 산출.
   //  - salesAmt: 잘 팔리는데 품절 교차 하이라이트용
@@ -390,13 +405,20 @@ export function computeRestockMetrics(restock, prevRestock = null, salesItems = 
 
   const products = [...curMap.values()].map(r => {
     const parsed = parseStyleCode(r.styleCode)
-    const prevCnt = prevMap?.get(r.productNo || r.name)?.cnt ?? null
+    const productKey = r.productNo || r.name
+    const prevCnt = prevMap?.get(productKey)?.cnt ?? null
     const sc = r.styleCode ? salesByCode.get(r.styleCode) : null
     const salesAmt = sc?.amt || 0
     const unitPrice = (sc && sc.qty > 0) ? sc.amt / sc.qty : null   // 실판매 단가
     const estUnit = unitPrice != null ? unitPrice : overallUnit     // 추정에 쓸 단가
+    // 단품(SKU) 단위 전주 대기건수 — 단품번호로 매칭(신규 단품은 null=신규)
+    const skusWithPrev = r.skus.map(s => {
+      const prevSkuCnt = s.optionNo ? (prevSkuMap.get(`${productKey}|${s.optionNo}`) ?? null) : null
+      return { ...s, prevCnt: hasPrev ? prevSkuCnt : null }
+    })
     return {
       ...r,
+      skus: skusWithPrev,
       itemName: parsed.itemName || '',
       gender:   parsed.gender || '',
       isCollab: parsed.gender === '콜라보',   // 성별코드 U = 캐릭터/브랜드 콜라보

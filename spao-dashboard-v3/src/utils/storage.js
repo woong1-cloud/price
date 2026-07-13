@@ -408,6 +408,49 @@ export function subscribeSnapshots(onChange) {
   }
 }
 
+// ─── 일자별 자동 적재 상태 (daily_* 스테이징 테이블) ─────────────────────────
+// 아직 daily_* → weekly_snapshots 롤업은 없다. 이 함수는 "자동 수집이 오늘 얼마나
+// 들어왔는지"만 참고용으로 보여주기 위한 것 — 화면(주차) 데이터와는 별개다.
+const INGEST_TABLES = [
+  'daily_sales_by_date', 'daily_sales', 'daily_cart', 'daily_wishlist', 'daily_customer',
+  'daily_visit_hourly', 'daily_store_hourly', 'daily_search', 'daily_coupon', 'daily_item_category_rank',
+]
+
+export async function getDailyIngestStatus() {
+  if (!supabase) return null
+  const today = new Date().toISOString().slice(0, 10)
+  try {
+    const results = await Promise.all(INGEST_TABLES.map(async (table) => {
+      const { count, error } = await supabase
+        .from(table)
+        .select('_ingested_at', { count: 'exact', head: true })
+        .eq('stat_date', today)
+      if (error) return { table, ok: false, count: 0 }
+      return { table, ok: true, count: count || 0 }
+    }))
+    const withData = results.filter(r => r.ok && r.count > 0)
+    if (withData.length === 0) return { datasetsToday: 0, totalDatasets: INGEST_TABLES.length, lastIngestedAt: null }
+
+    // 가장 최근 _ingested_at 하나만 별도 조회(대표값)
+    const { data: latestRow } = await supabase
+      .from(withData[0].table)
+      .select('_ingested_at')
+      .eq('stat_date', today)
+      .order('_ingested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    return {
+      datasetsToday: withData.length,
+      totalDatasets: INGEST_TABLES.length,
+      lastIngestedAt: latestRow?._ingested_at || null,
+    }
+  } catch (e) {
+    console.warn('일자별 적재 상태 조회 예외:', e)
+    return null
+  }
+}
+
 // 로컬 캐시 저장.
 // 전체 주간 데이터(코너 집계 포함)는 localStorage 한도(~5MB)를 넘을 수 있다.
 // 클라우드가 공유 데이터의 원천이므로 localStorage 는 "있으면 좋은" 즉시 로드 캐시일 뿐이다.

@@ -81,8 +81,11 @@ export default function WeekControl({
             }}>
               <input ref={newRef} type="file" accept=".xlsx,.xls" multiple style={{ display: 'none' }}
                 onChange={e => { if (e.target.files.length) { onNewWeekFiles(Array.from(e.target.files)); close() } }} />
-              ＋ 새 주차 추가 (파일 올리기)
+              ＋ 새 주차 추가 (수동 업로드)
             </label>
+            <div style={{ fontSize: '0.625rem', color: '#A0A09E', padding: '0 4px 6px', textAlign: 'center' }}>
+              평소엔 자동 수집으로 채워집니다 · 여긴 누락/보정용입니다
+            </div>
 
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {index.length === 0 && (
@@ -96,7 +99,7 @@ export default function WeekControl({
             {selected && (
               <div style={{ borderTop: '1px solid #F1F3F5', marginTop: 6, paddingTop: 8 }}>
                 <div style={{ fontSize: '0.6875rem', color: '#6B6B68', padding: '0 4px 6px' }}>
-                  <strong>{selected.week_label}</strong> 에 파일 추가/교체
+                  <strong>{selected.week_label}</strong> 에 파일 추가/교체 (수동 보정)
                 </div>
                 <label style={{
                   display: 'block', textAlign: 'center', cursor: 'pointer',
@@ -105,7 +108,7 @@ export default function WeekControl({
                 }}>
                   <input ref={upRef} type="file" accept=".xlsx,.xls" multiple style={{ display: 'none' }}
                     onChange={e => { if (e.target.files.length) { onUploadToSelected(Array.from(e.target.files)); close() } }} />
-                  📁 파일 업로드 (드롭 또는 선택)
+                  📁 수동 파일 업로드 (누락분 보정)
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px 0' }}>
                   <span style={{ fontSize: '0.6875rem', color: '#A0A09E' }}>전주 대비 기준</span>
