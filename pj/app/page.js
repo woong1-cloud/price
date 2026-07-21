@@ -15,9 +15,12 @@ export default function EntryPage() {
 
   useEffect(() => {
     fetch('/api/team-members')
-      .then((res) => res.json())
-      .then((data) => setTeamMembers(data.teamMembers ?? []))
-      .catch(() => setError('팀원 목록을 불러오지 못했습니다.'));
+      .then((res) => res.json().then((data) => ({ res, data })))
+      .then(({ res, data }) => {
+        if (!res.ok) throw new Error(data.error ?? '팀원 목록을 불러오지 못했습니다.');
+        setTeamMembers(data.teamMembers ?? []);
+      })
+      .catch((err) => setError(err.message || '팀원 목록을 불러오지 못했습니다.'));
   }, []);
 
   useEffect(() => {
@@ -26,12 +29,24 @@ export default function EntryPage() {
       setBrandId('');
       return;
     }
+    let cancelled = false;
     setLoadingBrands(true);
     fetch(`/api/my-brands?memberId=${memberId}`)
-      .then((res) => res.json())
-      .then((data) => setBrands(data.brands ?? []))
-      .catch(() => setError('브랜드 목록을 불러오지 못했습니다.'))
-      .finally(() => setLoadingBrands(false));
+      .then((res) => res.json().then((data) => ({ res, data })))
+      .then(({ res, data }) => {
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error ?? '브랜드 목록을 불러오지 못했습니다.');
+        setBrands(data.brands ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || '브랜드 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBrands(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [memberId]);
 
   function handleSubmit(event) {
