@@ -83,7 +83,12 @@ export default function EntryPage() {
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="member" className="text-sm font-medium text-slate-700">이름</label>
-            <Select value={memberId || undefined} onValueChange={handleMemberChange}>
+            <Select
+              items={teamMembers.map((m) => ({ value: m.id, label: m.name }))}
+              value={memberId || null}
+              onValueChange={handleMemberChange}
+              required
+            >
               <SelectTrigger id="member" className="w-full">
                 <SelectValue placeholder="선택하세요" />
               </SelectTrigger>
@@ -97,9 +102,11 @@ export default function EntryPage() {
           <div className="flex flex-col gap-1">
             <label htmlFor="brand" className="text-sm font-medium text-slate-700">브랜드</label>
             <Select
-              value={brandId || undefined}
+              items={brands.map((b) => ({ value: b.id, label: b.name }))}
+              value={brandId || null}
               onValueChange={setBrandId}
               disabled={!memberId || loadingBrands}
+              required
             >
               <SelectTrigger id="brand" className="w-full">
                 <SelectValue placeholder="선택하세요" />
