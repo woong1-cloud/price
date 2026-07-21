@@ -23,10 +23,16 @@ export function IdentityProvider({ children }) {
   const identity = useSyncExternalStore(subscribeToIdentity, loadIdentity, getServerIdentitySnapshot);
 
   useEffect(() => {
-    if (!identity) {
+    // Read localStorage directly here rather than trusting the `identity`
+    // render value: on a hard navigation straight to a page under this
+    // provider, the first render uses the SSR/hydration snapshot (always
+    // null), and this effect can fire before useSyncExternalStore's
+    // post-hydration correction lands. Checking storage directly avoids
+    // redirecting away from a valid session during that window.
+    if (!loadIdentity()) {
       router.replace('/');
     }
-  }, [identity, router]);
+  }, [router]);
 
   function switchUser() {
     clearIdentity();
