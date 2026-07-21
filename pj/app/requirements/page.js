@@ -12,14 +12,23 @@ export default function RequirementsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   // Bumped to force a manual refresh (e.g. after creating a requirement).
   const [reloadToken, setReloadToken] = useState(0);
-  // Tracks which fetch attempt `requirements`/`error` currently reflect, so
-  // "loading" can be derived during render instead of toggled with a
-  // synchronous setState inside the effect below.
-  const [loadResult, setLoadResult] = useState({ key: null, error: '' });
+  // Tracks which fetch attempt `requirements`/`categories`/`error` currently
+  // reflect, so "loading" can be derived during render instead of toggled
+  // with a synchronous setState inside the effect below. requirements and
+  // categories fetch independently, so each gets its own error slot -
+  // otherwise whichever settles last would clobber the other's error.
+  const [loadResult, setLoadResult] = useState({
+    key: null,
+    requirementsError: '',
+    categoriesError: '',
+  });
 
   const currentKey = `${identity.brandId}:${identity.memberId}:${reloadToken}`;
   const loading = loadResult.key !== currentKey;
-  const error = loadResult.key === currentKey ? loadResult.error : '';
+  const error =
+    loadResult.key === currentKey
+      ? loadResult.requirementsError || loadResult.categoriesError
+      : '';
 
   function refreshRequirements() {
     setReloadToken((token) => token + 1);
@@ -28,16 +37,27 @@ export default function RequirementsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    // Merge this fetch's outcome into loadResult without clobbering whatever
+    // the other (independent) fetch already recorded for the same key.
+    function mergeLoadResult(partial) {
+      setLoadResult((prev) => ({
+        key: currentKey,
+        requirementsError: prev.key === currentKey ? prev.requirementsError : '',
+        categoriesError: prev.key === currentKey ? prev.categoriesError : '',
+        ...partial,
+      }));
+    }
+
     fetch(`/api/requirements?brandId=${identity.brandId}&memberId=${identity.memberId}`)
       .then((res) => res.json().then((data) => ({ res, data })))
       .then(({ res, data }) => {
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error ?? '요구사항을 불러오지 못했습니다.');
         setRequirements(data.requirements);
-        setLoadResult({ key: currentKey, error: '' });
+        mergeLoadResult({ requirementsError: '' });
       })
       .catch((err) => {
-        if (!cancelled) setLoadResult({ key: currentKey, error: err.message });
+        if (!cancelled) mergeLoadResult({ requirementsError: err.message });
       });
 
     fetch(`/api/brand-categories?brandId=${identity.brandId}`)
@@ -46,10 +66,11 @@ export default function RequirementsPage() {
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error ?? '카테고리를 불러오지 못했습니다.');
         setCategories(data.categories ?? []);
+        mergeLoadResult({ categoriesError: '' });
       })
       .catch((err) => {
         if (!cancelled) {
-          setLoadResult({ key: currentKey, error: err.message || '카테고리를 불러오지 못했습니다.' });
+          mergeLoadResult({ categoriesError: err.message || '카테고리를 불러오지 못했습니다.' });
         }
       });
 

@@ -56,6 +56,7 @@ export default function EntryPage() {
     if (!value) {
       setBrands([]);
       setBrandId('');
+      setBrandsLoadedFor('');
     }
   }
 
