@@ -33,8 +33,12 @@ export default function RequirementsPage() {
   useEffect(() => {
     loadRequirements();
     fetch(`/api/brand-categories?brandId=${identity.brandId}`)
-      .then((res) => res.json())
-      .then((data) => setCategories(data.categories ?? []));
+      .then((res) => res.json().then((data) => ({ res, data })))
+      .then(({ res, data }) => {
+        if (!res.ok) throw new Error(data.error ?? '카테고리를 불러오지 못했습니다.');
+        setCategories(data.categories ?? []);
+      })
+      .catch((err) => setError(err.message || '카테고리를 불러오지 못했습니다.'));
   }, [identity.brandId, loadRequirements]);
 
   return (
