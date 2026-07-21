@@ -15,7 +15,11 @@ export async function requireBrandAccess(memberId, brandId, minTier) {
     .eq('id', memberId)
     .single();
 
-  if (memberError || !member || !member.is_active) {
+  if (memberError) {
+    console.error(memberError);
+    throw new ApiError(500, '사용자 조회 중 오류가 발생했습니다.');
+  }
+  if (!member || !member.is_active) {
     throw new ApiError(403, '유효하지 않은 사용자입니다.');
   }
 
@@ -25,6 +29,7 @@ export async function requireBrandAccess(memberId, brandId, minTier) {
     .eq('team_member_id', memberId);
 
   if (rolesError) {
+    console.error(rolesError);
     throw new ApiError(500, '권한 조회 중 오류가 발생했습니다.');
   }
 
