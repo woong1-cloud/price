@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireBrandAccess } from '@/lib/permissions';
 import { errorResponse, ApiError } from '@/lib/apiError';
+import { TIER_RANK } from '@/lib/tiers';
 
 export async function GET(request) {
   try {
@@ -10,7 +11,7 @@ export async function GET(request) {
     if (!brandId || !memberId) throw new ApiError(400, 'brandId와 memberId가 필요합니다.');
 
     const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, brandId, '3차');
-    const canSeeConfidential = isGlobalAdmin || tier === '2차';
+    const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['2차'];
 
     const supabase = getSupabaseAdmin();
     let query = supabase
