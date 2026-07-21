@@ -36,4 +36,37 @@ describe('checkBrandAccess', () => {
     });
     expect(result).toEqual({ allowed: true, tier: '2차' });
   });
+
+  it('알 수 없는 tier 값은 거부한다', () => {
+    const result = checkBrandAccess({
+      isGlobalAdmin: false,
+      roles: [{ brand_id: 'brand-1', tier: '4차' }],
+      brandId: 'brand-1',
+      minTier: '3차',
+    });
+    expect(result).toEqual({ allowed: false, tier: '4차' });
+  });
+
+  it('요구되는 tier와 정확히 같으면 허용한다', () => {
+    const result = checkBrandAccess({
+      isGlobalAdmin: false,
+      roles: [{ brand_id: 'brand-1', tier: '2차' }],
+      brandId: 'brand-1',
+      minTier: '2차',
+    });
+    expect(result).toEqual({ allowed: true, tier: '2차' });
+  });
+
+  it('여러 브랜드에 대한 역할 중 해당 브랜드만 매칭한다', () => {
+    const result = checkBrandAccess({
+      isGlobalAdmin: false,
+      roles: [
+        { brand_id: 'brand-2', tier: '2차' },
+        { brand_id: 'brand-1', tier: '3차' },
+      ],
+      brandId: 'brand-1',
+      minTier: '3차',
+    });
+    expect(result).toEqual({ allowed: true, tier: '3차' });
+  });
 });

@@ -8,5 +8,9 @@ export function checkBrandAccess({ isGlobalAdmin, roles, brandId, minTier }) {
   if (!role) {
     return { allowed: false, tier: null };
   }
-  return { allowed: TIER_RANK[role.tier] >= TIER_RANK[minTier], tier: role.tier };
+  const rank = TIER_RANK[role.tier];
+  if (rank === undefined) {
+    return { allowed: false, tier: role.tier };
+  }
+  return { allowed: rank >= TIER_RANK[minTier], tier: role.tier };
 }
