@@ -1,32 +1,39 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearIdentity, loadIdentity } from '@/lib/identity';
 
 const IdentityContext = createContext(null);
 
+// Identity lives in localStorage, an external (non-React) source of truth.
+// Nothing besides this app's own saveIdentity/clearIdentity calls mutates it
+// while a page is mounted, and those are always immediately followed by a
+// full navigation, so there's nothing to actively subscribe to here.
+function subscribeToIdentity() {
+  return () => {};
+}
+
+function getServerIdentitySnapshot() {
+  return null;
+}
+
 export function IdentityProvider({ children }) {
   const router = useRouter();
-  const [identity, setIdentity] = useState(null);
-  const [checked, setChecked] = useState(false);
+  const identity = useSyncExternalStore(subscribeToIdentity, loadIdentity, getServerIdentitySnapshot);
 
   useEffect(() => {
-    const stored = loadIdentity();
-    if (!stored) {
+    if (!identity) {
       router.replace('/');
-      return;
     }
-    setIdentity(stored);
-    setChecked(true);
-  }, [router]);
+  }, [identity, router]);
 
   function switchUser() {
     clearIdentity();
     router.replace('/');
   }
 
-  if (!checked) {
+  if (!identity) {
     return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>;
   }
 

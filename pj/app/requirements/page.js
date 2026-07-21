@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIdentity } from '@/components/IdentityProvider';
 import { RequirementList } from '@/components/RequirementList';
 import { RequirementFormDialog } from '@/components/RequirementFormDialog';
@@ -9,37 +9,54 @@ export default function RequirementsPage() {
   const { identity } = useIdentity();
   const [requirements, setRequirements] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Bumped to force a manual refresh (e.g. after creating a requirement).
+  const [reloadToken, setReloadToken] = useState(0);
+  // Tracks which fetch attempt `requirements`/`error` currently reflect, so
+  // "loading" can be derived during render instead of toggled with a
+  // synchronous setState inside the effect below.
+  const [loadResult, setLoadResult] = useState({ key: null, error: '' });
 
-  const loadRequirements = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(
-        `/api/requirements?brandId=${identity.brandId}&memberId=${identity.memberId}`
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? '요구사항을 불러오지 못했습니다.');
-      setRequirements(data.requirements);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [identity.brandId, identity.memberId]);
+  const currentKey = `${identity.brandId}:${identity.memberId}:${reloadToken}`;
+  const loading = loadResult.key !== currentKey;
+  const error = loadResult.key === currentKey ? loadResult.error : '';
+
+  function refreshRequirements() {
+    setReloadToken((token) => token + 1);
+  }
 
   useEffect(() => {
-    loadRequirements();
+    let cancelled = false;
+
+    fetch(`/api/requirements?brandId=${identity.brandId}&memberId=${identity.memberId}`)
+      .then((res) => res.json().then((data) => ({ res, data })))
+      .then(({ res, data }) => {
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error ?? '요구사항을 불러오지 못했습니다.');
+        setRequirements(data.requirements);
+        setLoadResult({ key: currentKey, error: '' });
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadResult({ key: currentKey, error: err.message });
+      });
+
     fetch(`/api/brand-categories?brandId=${identity.brandId}`)
       .then((res) => res.json().then((data) => ({ res, data })))
       .then(({ res, data }) => {
+        if (cancelled) return;
         if (!res.ok) throw new Error(data.error ?? '카테고리를 불러오지 못했습니다.');
         setCategories(data.categories ?? []);
       })
-      .catch((err) => setError(err.message || '카테고리를 불러오지 못했습니다.'));
-  }, [identity.brandId, loadRequirements]);
+      .catch((err) => {
+        if (!cancelled) {
+          setLoadResult({ key: currentKey, error: err.message || '카테고리를 불러오지 못했습니다.' });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [identity.brandId, identity.memberId, currentKey]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,7 +80,7 @@ export default function RequirementsPage() {
         onOpenChange={setDialogOpen}
         categories={categories}
         identity={identity}
-        onCreated={loadRequirements}
+        onCreated={refreshRequirements}
       />
     </div>
   );

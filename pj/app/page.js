@@ -10,8 +10,12 @@ export default function EntryPage() {
   const [brands, setBrands] = useState([]);
   const [memberId, setMemberId] = useState('');
   const [brandId, setBrandId] = useState('');
-  const [loadingBrands, setLoadingBrands] = useState(false);
+  // Tracks which memberId `brands` currently reflects, so "loading" can be
+  // derived during render instead of toggled with a synchronous setState
+  // inside the effect below.
+  const [brandsLoadedFor, setBrandsLoadedFor] = useState('');
   const [error, setError] = useState('');
+  const loadingBrands = Boolean(memberId) && brandsLoadedFor !== memberId;
 
   useEffect(() => {
     fetch('/api/team-members')
@@ -25,12 +29,9 @@ export default function EntryPage() {
 
   useEffect(() => {
     if (!memberId) {
-      setBrands([]);
-      setBrandId('');
       return;
     }
     let cancelled = false;
-    setLoadingBrands(true);
     fetch(`/api/my-brands?memberId=${memberId}`)
       .then((res) => res.json().then((data) => ({ res, data })))
       .then(({ res, data }) => {
@@ -42,12 +43,21 @@ export default function EntryPage() {
         if (!cancelled) setError(err.message || '브랜드 목록을 불러오지 못했습니다.');
       })
       .finally(() => {
-        if (!cancelled) setLoadingBrands(false);
+        if (!cancelled) setBrandsLoadedFor(memberId);
       });
     return () => {
       cancelled = true;
     };
   }, [memberId]);
+
+  function handleMemberChange(event) {
+    const value = event.target.value;
+    setMemberId(value);
+    if (!value) {
+      setBrands([]);
+      setBrandId('');
+    }
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -73,7 +83,7 @@ export default function EntryPage() {
             id="member"
             className="rounded border p-2"
             value={memberId}
-            onChange={(e) => setMemberId(e.target.value)}
+            onChange={handleMemberChange}
             required
           >
             <option value="">선택하세요</option>
