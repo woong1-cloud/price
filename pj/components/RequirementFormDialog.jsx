@@ -13,6 +13,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 function todayLocal() {
   const d = new Date();
@@ -26,7 +33,7 @@ function emptyForm() {
     priority: '',
     urgency: '',
     requestDate: todayLocal(),
-    category: '',
+    category: 'none',
     asIs: '',
     toBe: '',
     note: '',
@@ -59,7 +66,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
           priority: form.priority || null,
           urgency: form.urgency || null,
           requestDate: form.requestDate,
-          category: form.category || null,
+          category: form.category === 'none' ? null : form.category,
           asIs: form.asIs,
           toBe: form.toBe,
           note: form.note,
@@ -126,17 +133,24 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="category">카테고리</Label>
-            <select
-              id="category"
-              className="rounded border p-2 text-sm"
+            <Select
+              items={[
+                { value: 'none', label: '선택 안 함' },
+                ...categories.map((c) => ({ value: c.id, label: c.category_name })),
+              ]}
               value={form.category}
-              onChange={(e) => updateField('category', e.target.value)}
+              onValueChange={(value) => updateField('category', value)}
             >
-              <option value="">선택 안 함</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.category_name}</option>
-              ))}
-            </select>
+              <SelectTrigger id="category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">선택 안 함</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.category_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="asIs">As-Is</Label>
@@ -159,7 +173,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
             <Label htmlFor="isConfidential">비공개 요구사항 (2차 이상만 조회 가능)</Label>
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700">
               {submitting ? '등록 중...' : '등록'}
             </Button>
           </DialogFooter>
