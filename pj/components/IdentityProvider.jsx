@@ -40,7 +40,7 @@ export function IdentityProvider({ children }) {
   }
 
   if (!identity) {
-    return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>;
+    return <div className="p-6 text-sm text-slate-500">불러오는 중...</div>;
   }
 
   return (

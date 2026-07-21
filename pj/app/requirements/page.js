@@ -82,17 +82,17 @@ export default function RequirementsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">요구사항 목록</h1>
+        <h1 className="text-lg font-semibold text-slate-900">요구사항 목록</h1>
         <button
           onClick={() => setDialogOpen(true)}
-          className="rounded bg-black px-3 py-2 text-sm text-white"
+          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white transition-colors hover:bg-indigo-700"
         >
           + 새 요구사항
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {loading ? (
-        <p className="text-sm text-gray-500">불러오는 중...</p>
+        <p className="text-sm text-slate-500">불러오는 중...</p>
       ) : (
         <RequirementList requirements={requirements} />
       )}
