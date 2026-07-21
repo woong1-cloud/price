@@ -3,6 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveIdentity } from '@/lib/identity';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function EntryPage() {
   const router = useRouter();
@@ -50,14 +57,9 @@ export default function EntryPage() {
     };
   }, [memberId]);
 
-  function handleMemberChange(event) {
-    const value = event.target.value;
+  function handleMemberChange(value) {
     setMemberId(value);
-    if (!value) {
-      setBrands([]);
-      setBrandId('');
-      setBrandsLoadedFor('');
-    }
+    setBrandId('');
   }
 
   function handleSubmit(event) {
@@ -74,49 +76,50 @@ export default function EntryPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
-      <h1 className="text-xl font-semibold">요구사항 관리</h1>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="member" className="text-sm font-medium">이름</label>
-          <select
-            id="member"
-            className="rounded border p-2"
-            value={memberId}
-            onChange={handleMemberChange}
-            required
+    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center bg-slate-50 p-6">
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <h1 className="text-xl font-semibold text-slate-900">요구사항 관리</h1>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member" className="text-sm font-medium text-slate-700">이름</label>
+            <Select value={memberId || undefined} onValueChange={handleMemberChange}>
+              <SelectTrigger id="member" className="w-full">
+                <SelectValue placeholder="선택하세요" />
+              </SelectTrigger>
+              <SelectContent>
+                {teamMembers.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="brand" className="text-sm font-medium text-slate-700">브랜드</label>
+            <Select
+              value={brandId || undefined}
+              onValueChange={setBrandId}
+              disabled={!memberId || loadingBrands}
+            >
+              <SelectTrigger id="brand" className="w-full">
+                <SelectValue placeholder="선택하세요" />
+              </SelectTrigger>
+              <SelectContent>
+                {brands.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <button
+            type="submit"
+            className="rounded-lg bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            disabled={!memberId || !brandId}
           >
-            <option value="">선택하세요</option>
-            {teamMembers.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="brand" className="text-sm font-medium">브랜드</label>
-          <select
-            id="brand"
-            className="rounded border p-2"
-            value={brandId}
-            onChange={(e) => setBrandId(e.target.value)}
-            required
-            disabled={!memberId || loadingBrands}
-          >
-            <option value="">선택하세요</option>
-            {brands.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="submit"
-          className="rounded bg-black p-2 text-white disabled:opacity-50"
-          disabled={!memberId || !brandId}
-        >
-          입장
-        </button>
-      </form>
+            입장
+          </button>
+        </form>
+      </div>
     </main>
   );
 }
