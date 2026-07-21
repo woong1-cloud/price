@@ -13,7 +13,11 @@ export async function GET(request) {
       .select('id, is_active, is_global_admin')
       .eq('id', memberId)
       .single();
-    if (memberError || !member || !member.is_active) {
+    if (memberError) {
+      console.error(memberError);
+      throw new ApiError(500, '사용자 조회 중 오류가 발생했습니다.');
+    }
+    if (!member || !member.is_active) {
       throw new ApiError(403, '유효하지 않은 사용자입니다.');
     }
 
