@@ -1,24 +1,33 @@
 import { Badge } from '@/components/ui/badge';
 
-const STATUS_VARIANT = {
-  대기: 'secondary',
-  요청: 'secondary',
-  검토: 'outline',
-  정책정의: 'outline',
-  진행중: 'default',
-  완료: 'default',
+const STATUS_STYLES = {
+  대기: 'bg-slate-100 text-slate-600',
+  요청: 'bg-slate-100 text-slate-600',
+  검토: 'bg-amber-50 text-amber-700',
+  정책정의: 'bg-amber-50 text-amber-700',
+  진행중: 'bg-indigo-50 text-indigo-700',
+  완료: 'bg-emerald-50 text-emerald-700',
 };
+const DEFAULT_STATUS_STYLE = 'bg-slate-100 text-slate-600';
+
+function StatusBadge({ status }) {
+  return <Badge className={STATUS_STYLES[status] ?? DEFAULT_STATUS_STYLE}>{status}</Badge>;
+}
+
+function ConfidentialBadge() {
+  return <Badge className="bg-rose-50 text-rose-600">비공개</Badge>;
+}
 
 export function RequirementList({ requirements }) {
   if (requirements.length === 0) {
-    return <p className="text-sm text-gray-500">등록된 요구사항이 없습니다.</p>;
+    return <p className="text-sm text-slate-500">등록된 요구사항이 없습니다.</p>;
   }
 
   return (
     <>
-      <div className="hidden overflow-x-auto rounded border md:block">
+      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 md:block">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left">
+          <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
               <th className="p-2">요청일</th>
               <th className="p-2">상태</th>
@@ -30,18 +39,20 @@ export function RequirementList({ requirements }) {
           </thead>
           <tbody>
             {requirements.map((req) => (
-              <tr key={req.id} className="border-t">
-                <td className="p-2">{req.request_date}</td>
+              <tr key={req.id} className="border-t border-slate-200 hover:bg-slate-50">
+                <td className="p-2 text-slate-600">{req.request_date}</td>
                 <td className="p-2">
-                  <Badge variant={STATUS_VARIANT[req.status] ?? 'secondary'}>{req.status}</Badge>
+                  <StatusBadge status={req.status} />
                 </td>
-                <td className="p-2">{req.category?.category_name ?? '-'}</td>
-                <td className="p-2">
-                  {req.title}
-                  {req.is_confidential && <span className="ml-1 text-xs text-red-500">비공개</span>}
+                <td className="p-2 text-slate-600">{req.category?.category_name ?? '-'}</td>
+                <td className="p-2 text-slate-900">
+                  <span className="inline-flex items-center gap-1.5">
+                    {req.title}
+                    {req.is_confidential && <ConfidentialBadge />}
+                  </span>
                 </td>
-                <td className="p-2">{req.requester?.name ?? '-'}</td>
-                <td className="p-2">{req.priority ?? '-'}</td>
+                <td className="p-2 text-slate-600">{req.requester?.name ?? '-'}</td>
+                <td className="p-2 text-slate-600">{req.priority ?? '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -49,16 +60,16 @@ export function RequirementList({ requirements }) {
       </div>
       <div className="flex flex-col gap-3 md:hidden">
         {requirements.map((req) => (
-          <div key={req.id} className="rounded border p-3">
+          <div key={req.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex items-center justify-between">
-              <Badge variant={STATUS_VARIANT[req.status] ?? 'secondary'}>{req.status}</Badge>
-              <span className="text-xs text-gray-500">{req.request_date}</span>
+              <StatusBadge status={req.status} />
+              <span className="text-xs text-slate-500">{req.request_date}</span>
             </div>
-            <p className="mt-2 font-medium">
+            <p className="mt-2 flex items-center gap-1.5 font-medium text-slate-900">
               {req.title}
-              {req.is_confidential && <span className="ml-1 text-xs text-red-500">비공개</span>}
+              {req.is_confidential && <ConfidentialBadge />}
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-slate-500">
               {req.category?.category_name ?? '-'} · {req.requester?.name ?? '-'}
             </p>
           </div>
