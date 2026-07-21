@@ -14,12 +14,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 
+function todayLocal() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function emptyForm() {
   return {
     title: '',
     priority: '',
     urgency: '',
-    requestDate: new Date().toISOString().slice(0, 10),
+    requestDate: todayLocal(),
     category: '',
     asIs: '',
     toBe: '',
