@@ -55,7 +55,8 @@ export async function POST(request) {
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
     if (!title || !title.trim()) throw new ApiError(400, '제목은 필수입니다.');
 
-    await requireBrandAccess(memberId, brandId, '3차');
+    const { isGlobalAdmin, tier } = await requireBrandAccess(memberId, brandId, '3차');
+    const canSetConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['2차'];
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
@@ -71,7 +72,7 @@ export async function POST(request) {
         as_is: asIs || null,
         to_be: toBe || null,
         note: note || null,
-        is_confidential: Boolean(isConfidential),
+        is_confidential: canSetConfidential ? Boolean(isConfidential) : false,
         status: '대기',
       })
       .select()
