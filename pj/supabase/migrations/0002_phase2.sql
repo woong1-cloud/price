@@ -29,8 +29,9 @@ declare
   v_source requirements%rowtype;
   v_target requirements%rowtype;
 begin
-  select * into v_source from requirements where id = p_source for update;
-  select * into v_target from requirements where id = p_target for update;
+  perform 1 from requirements where id in (p_source, p_target) order by id for update;
+  select * into v_source from requirements where id = p_source;
+  select * into v_target from requirements where id = p_target;
 
   update requirements set status = '중복', updated_at = now() where id = p_source;
 
