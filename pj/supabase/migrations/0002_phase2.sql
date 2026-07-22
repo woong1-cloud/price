@@ -33,6 +33,13 @@ begin
   select * into v_source from requirements where id = p_source;
   select * into v_target from requirements where id = p_target;
 
+  if v_source.status = '중복' then
+    raise exception '이미 중복 처리된 요구사항입니다.';
+  end if;
+  if v_target.status = '중복' then
+    raise exception '중복 처리된 요구사항을 대상으로 병합할 수 없습니다.';
+  end if;
+
   update requirements set status = '중복', updated_at = now() where id = p_source;
 
   insert into change_logs (requirement_id, brand_id, changed_by, change_type,
