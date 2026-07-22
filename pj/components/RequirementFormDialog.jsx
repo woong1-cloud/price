@@ -52,6 +52,17 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  // 제출 없이(Esc·바깥 클릭·닫기 버튼) 다이얼로그를 닫으면 이전 입력이 다음에 열었을 때
+  // 그대로 남아있지 않도록 초기화한다.
+  function handleOpenChange(next) {
+    if (!next) {
+      setForm(emptyForm());
+      setImageFiles([]);
+      setError('');
+    }
+    onOpenChange(next);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setSubmitting(true);
@@ -78,6 +89,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '등록에 실패했습니다.');
       const created = data.requirement;
+      let imageUploadFailed = false;
       if (imageFiles.length > 0 && created?.id) {
         try {
           const fd = new FormData();
@@ -93,14 +105,18 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
             throw new Error(imgData.error ?? '이미지 업로드에 실패했습니다.');
           }
         } catch (imgErr) {
-          // 본문은 이미 저장됨 — 상세에서 이미지 재시도 가능. 경고만 남기고 진행.
+          // 본문은 이미 저장됨 — 상세에서 이미지 재시도 가능. 다이얼로그를 닫지 않고
+          // 경고를 계속 보여준다(닫으면 애니메이션과 함께 메시지가 바로 사라져 버림).
+          imageUploadFailed = true;
           setError(`요구사항은 등록됐지만 이미지 업로드에 실패했습니다: ${imgErr.message}`);
         }
       }
       setForm(emptyForm());
       setImageFiles([]);
-      onOpenChange(false);
       onCreated();
+      if (!imageUploadFailed) {
+        onOpenChange(false);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -109,7 +125,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>새 요구사항 등록</DialogTitle>
