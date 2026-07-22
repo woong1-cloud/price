@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ImageDropzone } from '@/components/ImageDropzone';
 
 function todayLocal() {
   const d = new Date();
@@ -45,6 +46,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
   const [form, setForm] = useState(emptyForm());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [imageFiles, setImageFiles] = useState([]);
 
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -75,7 +77,28 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '등록에 실패했습니다.');
+      const created = data.requirement;
+      if (imageFiles.length > 0 && created?.id) {
+        try {
+          const fd = new FormData();
+          fd.append('memberId', identity.memberId);
+          fd.append('brandId', identity.brandId);
+          imageFiles.forEach((f) => fd.append('files', f));
+          const imgRes = await fetch(`/api/requirements/${created.id}/images`, {
+            method: 'POST',
+            body: fd,
+          });
+          if (!imgRes.ok) {
+            const imgData = await imgRes.json();
+            throw new Error(imgData.error ?? '이미지 업로드에 실패했습니다.');
+          }
+        } catch (imgErr) {
+          // 본문은 이미 저장됨 — 상세에서 이미지 재시도 가능. 경고만 남기고 진행.
+          setError(`요구사항은 등록됐지만 이미지 업로드에 실패했습니다: ${imgErr.message}`);
+        }
+      }
       setForm(emptyForm());
+      setImageFiles([]);
       onOpenChange(false);
       onCreated();
     } catch (err) {
@@ -163,6 +186,14 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
           <div className="flex flex-col gap-1">
             <Label htmlFor="note">비고</Label>
             <Textarea id="note" value={form.note} onChange={(e) => updateField('note', e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>이미지 첨부</Label>
+            <ImageDropzone
+              files={imageFiles}
+              onAdd={(added) => setImageFiles((prev) => [...prev, ...added])}
+              onRemove={(i) => setImageFiles((prev) => prev.filter((_, idx) => idx !== i))}
+            />
           </div>
           <div className="flex items-center gap-2">
             <Checkbox
