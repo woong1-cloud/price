@@ -23,7 +23,10 @@ export function RequirementDetail({ id }) {
   const manage = canManage(identity);
   const [data, setData] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [error, setError] = useState('');
+  // loadError: 최초/재조회 실패 — 화면 전체를 대체한다.
+  // actionError: 상태·담당자·이미지 조작 실패 — 이미 불러온 화면은 유지한 채 배너로만 보여준다.
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [newFiles, setNewFiles] = useState([]);
 
   useEffect(() => {
@@ -39,9 +42,9 @@ export function RequirementDetail({ id }) {
       .then(({ res, d }) => {
         if (!res.ok) throw new Error(d.error ?? '불러오지 못했습니다.');
         setData(d);
-        setError('');
+        setLoadError('');
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setLoadError(e.message));
   }, [id, identity.memberId]);
 
   useEffect(() => {
@@ -49,6 +52,7 @@ export function RequirementDetail({ id }) {
   }, [load]);
 
   async function changeStatus(status) {
+    setActionError('');
     const res = await fetch(`/api/requirements/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -56,13 +60,14 @@ export function RequirementDetail({ id }) {
     });
     if (!res.ok) {
       const d = await res.json();
-      setError(d.error ?? '상태 변경 실패');
+      setActionError(d.error ?? '상태 변경 실패');
       return;
     }
     load();
   }
 
   async function changeAssignee(assignee) {
+    setActionError('');
     const res = await fetch(`/api/requirements/${id}/assignee`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -74,7 +79,7 @@ export function RequirementDetail({ id }) {
     });
     if (!res.ok) {
       const d = await res.json();
-      setError(d.error ?? '담당자 변경 실패');
+      setActionError(d.error ?? '담당자 변경 실패');
       return;
     }
     load();
@@ -82,6 +87,7 @@ export function RequirementDetail({ id }) {
 
   async function uploadNew() {
     if (newFiles.length === 0) return;
+    setActionError('');
     const fd = new FormData();
     fd.append('memberId', identity.memberId);
     fd.append('brandId', identity.brandId);
@@ -89,7 +95,7 @@ export function RequirementDetail({ id }) {
     const res = await fetch(`/api/requirements/${id}/images`, { method: 'POST', body: fd });
     if (!res.ok) {
       const d = await res.json();
-      setError(d.error ?? '이미지 업로드 실패');
+      setActionError(d.error ?? '이미지 업로드 실패');
       return;
     }
     setNewFiles([]);
@@ -97,19 +103,21 @@ export function RequirementDetail({ id }) {
   }
 
   async function deleteImage(imageId) {
+    if (!window.confirm('이미지를 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
+    setActionError('');
     const res = await fetch(
       `/api/requirements/${id}/images/${imageId}?memberId=${identity.memberId}&brandId=${identity.brandId}`,
       { method: 'DELETE' },
     );
     if (!res.ok) {
       const d = await res.json();
-      setError(d.error ?? '이미지 삭제 실패');
+      setActionError(d.error ?? '이미지 삭제 실패');
       return;
     }
     load();
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;
   if (!data) return <p className="text-sm text-slate-500">불러오는 중...</p>;
 
   const { requirement: r, history, duplicates, mergedInto, images } = data;
@@ -119,6 +127,8 @@ export function RequirementDetail({ id }) {
       <Link href="/requirements" className="text-sm text-slate-500 hover:text-slate-700">
         ← 목록으로
       </Link>
+
+      {actionError && <p className="text-sm text-red-600">{actionError}</p>}
 
       {mergedInto && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
