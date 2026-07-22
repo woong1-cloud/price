@@ -28,6 +28,9 @@ export async function PATCH(request, { params }) {
     if (curError) throw curError;
     if (!current) throw new ApiError(404, '요구사항을 찾을 수 없습니다.');
     if (current.brand_id !== brandId) throw new ApiError(403, '브랜드가 일치하지 않습니다.');
+    if (current.status === MERGED_STATUS) {
+      throw new ApiError(400, '병합된 요구사항의 상태는 변경할 수 없습니다.');
+    }
 
     const nowIso = new Date().toISOString();
     const completedAt = computeCompletedAt(current.status, status, current.completed_at, nowIso);
