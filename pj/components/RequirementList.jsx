@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 
 const STATUS_STYLES = {
@@ -7,6 +8,7 @@ const STATUS_STYLES = {
   정책정의: 'bg-amber-50 text-amber-700',
   진행중: 'bg-indigo-50 text-indigo-700',
   완료: 'bg-emerald-50 text-emerald-700',
+  중복: 'bg-slate-100 text-slate-400',
 };
 const DEFAULT_STATUS_STYLE = 'bg-slate-100 text-slate-600';
 
@@ -16,6 +18,16 @@ function StatusBadge({ status }) {
 
 function ConfidentialBadge() {
   return <Badge className="bg-rose-50 text-rose-600">비공개</Badge>;
+}
+
+function Meta({ req }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-slate-400">
+      {req.is_confidential && <ConfidentialBadge />}
+      {req.image_count > 0 && <span>📎 {req.image_count}</span>}
+      {req.status === '중복' && <span>→ 병합됨</span>}
+    </span>
+  );
 }
 
 export function RequirementList({ requirements }) {
@@ -39,16 +51,23 @@ export function RequirementList({ requirements }) {
           </thead>
           <tbody>
             {requirements.map((req) => (
-              <tr key={req.id} className="border-t border-slate-200 hover:bg-slate-50">
+              <tr
+                key={req.id}
+                className={`border-t border-slate-200 hover:bg-slate-50 ${
+                  req.status === '중복' ? 'opacity-60' : ''
+                }`}
+              >
                 <td className="p-2 text-slate-600">{req.request_date}</td>
                 <td className="p-2">
                   <StatusBadge status={req.status} />
                 </td>
                 <td className="p-2 text-slate-600">{req.category?.category_name ?? '-'}</td>
                 <td className="p-2 text-slate-900">
-                  <span className="inline-flex items-center gap-1.5">
+                  <Link href={`/requirements/${req.id}`} className="inline-flex items-center gap-1.5 hover:underline">
                     {req.title}
-                    {req.is_confidential && <ConfidentialBadge />}
+                  </Link>
+                  <span className="ml-1.5">
+                    <Meta req={req} />
                   </span>
                 </td>
                 <td className="p-2 text-slate-600">{req.requester?.name ?? '-'}</td>
@@ -60,19 +79,23 @@ export function RequirementList({ requirements }) {
       </div>
       <div className="flex flex-col gap-3 md:hidden">
         {requirements.map((req) => (
-          <div key={req.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <Link
+            key={req.id}
+            href={`/requirements/${req.id}`}
+            className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm ${
+              req.status === '중복' ? 'opacity-60' : ''
+            }`}
+          >
             <div className="flex items-center justify-between">
               <StatusBadge status={req.status} />
               <span className="text-xs text-slate-500">{req.request_date}</span>
             </div>
-            <p className="mt-2 flex items-center gap-1.5 font-medium text-slate-900">
-              {req.title}
-              {req.is_confidential && <ConfidentialBadge />}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-2 font-medium text-slate-900">{req.title}</p>
+            <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
               {req.category?.category_name ?? '-'} · {req.requester?.name ?? '-'}
+              <Meta req={req} />
             </p>
-          </div>
+          </Link>
         ))}
       </div>
     </>
