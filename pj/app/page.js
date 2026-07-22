@@ -65,12 +65,14 @@ export default function EntryPage() {
   function handleSubmit(event) {
     event.preventDefault();
     const member = teamMembers.find((m) => m.id === memberId);
-    if (!member || !brandId) return;
+    const brand = brands.find((b) => b.id === brandId);
+    if (!member || !brand) return;
     saveIdentity({
       memberId: member.id,
       name: member.name,
       isGlobalAdmin: member.is_global_admin,
-      brandId,
+      brandId: brand.id,
+      tier: brand.tier,
     });
     router.push('/requirements');
   }
