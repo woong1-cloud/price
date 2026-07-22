@@ -8,10 +8,13 @@
 
 ## 배경 / 목적
 
-1단계는 요구사항을 **등록**하고 **목록으로 보는** 것까지였다. 2단계는 등록된 요구사항을
-**처리**하는 흐름을 추가한다: 2차(브랜드 관리자)가 새로 들어온 '대기' 건을 훑어보며
-(Triage) 상태를 바꾸고, 담당자를 지정하고, 중복 요청을 하나로 병합한다. 모든 상태 변경은
-이력(change_logs)으로 남겨 추적 가능하게 한다.
+1단계는 요구사항을 **등록**하고 **목록으로 보는** 것까지였다. 2단계는 두 축을 더한다.
+- **처리 흐름**: 2차(브랜드 관리자)가 새로 들어온 '대기' 건을 훑어보며(Triage) 상태를
+  바꾸고, 담당자를 지정하고, 중복 요청을 하나로 병합한다. 모든 상태 변경은
+  이력(change_logs)으로 남겨 추적 가능하게 한다.
+- **등록 경험 강화**: 오류를 발견한 사용자가 mo/pc 어디서든 **스크린샷 이미지를 쉽게
+  첨부**해 등록할 수 있게 한다(원래 5단계에 있던 이미지 업로드를 앞당김). 이미지 위에
+  마킹하는 캔버스 기능은 5단계로 유지한다.
 
 ## 이번 단계 범위 요약
 
@@ -28,9 +31,13 @@
 5. **담당자 지정** — 2차 이상이 카드 메뉴/상세에서 지정(이력 미기록).
 6. **중복 병합** — 2차가 중복 건을 기존 건에 병합. pg_trgm 기반 유사 후보 자동 제시.
 7. **identity에 tier 심기** — "2차에게만 노출" UI 분기를 위한 선행 작업.
+8. **이미지 첨부** — 등록 폼과 상세 페이지에서 요구사항당 이미지 **여러 장** 업로드/미리보기
+   /삭제. 모바일 카메라·갤러리, PC 파일선택·드래그앤드롭·클립보드 붙여넣기 지원.
 
-### 범위 제외 (3단계 이후로 미룸)
+### 범위 제외 (다음 단계로 미룸)
 
+- **캔버스 마킹**(이미지 위 화살표/동그라미, `annotation_data`) — 5단계. 이번 단계는
+  이미지 **첨부**까지만.
 - 인앱 알림(요청자에게 "당신 요청이 병합됨" 통지) — 4단계.
 - 담당자 변경 이력 기록 — 이번 단계는 상태 변경만 기록.
 - 의미 기반(임베딩/pgvector) 중복 탐지 — pg_trgm으로 부족하다고 판단되면 별도 단계.
@@ -41,8 +48,8 @@
 
 ## 데이터 모델 변경 (마이그레이션 0002)
 
-기존 `change_logs`, `duplicate_links` 테이블은 1단계에 이미 생성되어 있어 스키마 변경이
-없다. 변경 사항은 두 가지뿐이다.
+기존 `change_logs`, `duplicate_links` 테이블은 1단계에 이미 생성되어 있어 그대로 사용한다.
+새 변경 사항은 다음과 같다.
 
 1. **`requirements.status` CHECK 제약에 `'중복'` 추가**
 
@@ -51,7 +58,34 @@
 
    (기존 CHECK 제약을 drop 후 재생성하는 마이그레이션.)
 
-2. **pg_trgm 확장 활성화** — `create extension if not exists pg_trgm;`
+2. **`requirement_images` 테이블 신설** — 요구사항당 이미지 여러 장을 담는다. 기존
+   `requirements.screenshot_url`(단일) 컬럼은 다중 첨부를 담기엔 부족하므로 별도 테이블을
+   둔다. 기존 `screenshot_url` / `annotated_image_url` / `annotation_data` 컬럼은 손대지
+   않고 남겨둔다(캔버스 마킹은 5단계).
+
+   ```sql
+   create table requirement_images (
+     id uuid primary key default gen_random_uuid(),
+     requirement_id uuid not null references requirements(id) on delete cascade,
+     brand_id uuid not null references brands(id),
+     storage_path text not null,          -- 비공개 버킷 내 경로(공개 URL 아님)
+     content_type text,
+     byte_size integer,
+     sort_order integer not null default 0,
+     uploaded_by uuid references team_members(id),
+     created_at timestamptz not null default now()
+   );
+   ```
+
+   `brand_id`를 직접 두어 1단계 RLS 준비 원칙과 일관되게 한다. `on delete cascade`로
+   요구사항 삭제 시 이미지 행도 정리(스토리지 객체 정리는 애플리케이션에서 처리).
+
+3. **Supabase Storage 비공개 버킷** — `requirement-images`(비공개). 마이그레이션 SQL이
+   아니라 Supabase 대시보드/설정 단계에서 생성하는 수동 스텝으로 문서화한다. 객체 경로
+   규약: `{brandId}/{requirementId}/{uuid}.{ext}`. 브라우저에 공개 URL을 노출하지 않고,
+   조회 시 서버가 **짧은 TTL의 서명 URL**을 발급한다.
+
+4. **pg_trgm 확장 활성화** — `create extension if not exists pg_trgm;`
    중복 후보 유사도 계산에 사용. 선택적으로 유사도 쿼리 성능을 위해
    `requirements`의 검색 대상 텍스트에 GIN 트라이그램 인덱스를 둘 수 있으나, 브랜드당
    요구사항 수가 작은 초기 단계에서는 인덱스 없이도 충분하다. 인덱스는 데이터가 커지면
@@ -116,6 +150,12 @@
   403 (목록에서 이미 숨기지만, URL 직접 접근도 서버에서 차단).
 - **상세 페이지 쓰기 컨트롤**(상태/담당자 드롭다운, 병합 버튼): 3차에게는 렌더링하지 않고,
   서버 API도 3차 요청을 403으로 거부.
+- **이미지 첨부/삭제**: 해당 브랜드 소속이면 3차 이상 가능(`requireBrandAccess('3차')`).
+  등록 당사자(요청자)가 스크린샷을 올리는 게 주 사용처이므로 3차에게도 허용한다. (브랜드
+  전체 스코프이고 "내 요청" 소유 판정을 별도로 두지 않는 기존 느슨한 모델을 따른다 —
+  이는 1단계에서 명시한 알려진 한계와 동일선상.)
+- **비공개 건의 이미지**: 서명 URL은 서버가 상세 응답에서만 발급하고, 상세 GET이 비공개+3차를
+  이미 403으로 막으므로 3차는 비공개 이미지의 서명 URL을 받지 못한다.
 
 ## API 설계 (2단계)
 
@@ -129,13 +169,28 @@
     status별로 그룹핑해 컬럼을 만든다(별도 보드 전용 엔드포인트 불필요). 보드는
     `status='중복'`을 컬럼에 두지 않으므로 클라이언트에서 제외한다.
   - 기본 목록 뷰에서는 `status='중복'` 건을 숨기지 않는다(아래 "병합 동작" 참고).
+  - 각 행에 `image_count`(첨부 이미지 수)를 포함해 목록/보드 카드에서 클립 아이콘+개수를
+    보여준다(목록에서는 서명 URL을 만들지 않고 개수만 — 성능).
 
 - **`GET /api/requirements/[id]?memberId=`** — 상세. 한 번의 응답으로:
   - `requirement`: 본문 전체(+ requester/category/assignee 조인).
   - `history`: `change_logs where requirement_id = id` (created_at 오름차순).
   - `duplicates`: `duplicate_links where requirement_id = id` (병합되어 들어온 요청자들).
   - `mergedInto`: 이 건이 status='중복'이면 대상 `{id, title}`, 아니면 null.
+  - `images`: `requirement_images` 목록(sort_order 순). 각 항목에 **서버가 발급한 짧은 TTL
+    서명 URL**을 포함(공개 경로 노출 금지).
   - 검증: `requireBrandAccess('3차')` + 비공개면 3차 차단.
+
+- **`POST /api/requirements/[id]/images`** — 이미지 업로드. `multipart/form-data`로 파일
+  1장 이상 + `memberId`, `brandId`.
+  - `requireBrandAccess('3차')`.
+  - 순수 검증(`validateImageUpload`): 허용 MIME(`image/png|jpeg|gif|webp`), 파일당 최대
+    크기(`MAX_IMAGE_BYTES`, 예 10MB), 요구사항당 최대 개수(`MAX_IMAGES_PER_REQ`, 예 10).
+  - 서버가 비공개 버킷에 `{brandId}/{id}/{uuid}.{ext}`로 업로드 후 `requirement_images`
+    행 추가. 반환: 갱신된 이미지 목록(서명 URL 포함).
+
+- **`DELETE /api/requirements/[id]/images/[imageId]?memberId=&brandId=`** — 이미지 삭제.
+  - `requireBrandAccess('3차')`. `requirement_images` 행 + 스토리지 객체 삭제.
 
 - **`PATCH /api/requirements/[id]/status`** — body `{memberId, brandId, status}`.
   - `requireBrandAccess('2차')`.
@@ -166,6 +221,12 @@
     제목+As-Is+To-Be를 이어붙인 텍스트에 대한 pg_trgm `similarity()`가 임계값
     (`SIMILARITY_THRESHOLD`, 기본 0.2) 이상인 상위 N개(기본 5)를 유사도 내림차순 반환.
   - 반환: `[{id, title, requester_name, status, score}]`.
+
+**등록 시 이미지 흐름**: 등록 폼은 파일을 로컬에서 먼저 모아 미리보기(objectURL)만 보여주고,
+제출 시 (1) `POST /api/requirements`(JSON)로 요구사항을 만들어 id를 받은 뒤 (2) 그 id로
+`POST .../images`를 호출해 업로드한다. 이미지 업로드가 실패해도 요구사항 본문은 이미
+저장돼 있으므로 잃지 않고, 상세 페이지에서 나중에 이미지를 추가할 수 있다(에러만 안내).
+`POST /api/requirements`(본문 생성)는 기존 JSON 계약을 그대로 유지한다.
 
 모든 응답 에러는 `{ error: string }` + 적절한 HTTP status(400/403/404/500).
 
@@ -202,7 +263,8 @@ Jira의 보드/리스트/이슈상세 패턴에서 이번 단계에 실제로 �
   컬럼 내 정렬은 **요청일 오름차순**(오래 방치된 건이 위로). 다른 컬럼은 요청일 최신순.
 - **카드 내용**: 우선순위 칩(상=danger·중=warning·하=neutral), 제목, 카테고리, 담당자
   아바타(이니셜, 미지정 시 회색 "미"), 비공개 배지(`ti-lock`), 병합 카운트
-  (`duplicate_count > 0`이면 `ti-copy N`). '완료' 카드는 흐리게(muted).
+  (`duplicate_count > 0`이면 `ti-copy N`), 이미지 카운트(`image_count > 0`이면
+  `ti-paperclip N`). '완료' 카드는 흐리게(muted).
 - **상태 변경 = 카드 드래그 앤 드롭**: 카드를 다른 컬럼으로 놓으면 `PATCH .../status` 호출.
   - 드롭 즉시 낙관적으로 카드를 옮기고, 실패하면 원위치 롤백 + 에러 토스트(불일치 방지를
     위해 서버 응답으로 최종 확정).
@@ -235,27 +297,42 @@ Jira의 보드/리스트/이슈상세 패턴에서 이번 단계에 실제로 �
 - **우측 메타 사이드바**: 상태, 담당자, 카테고리, 요청자, 요청일, 우선순위, 긴급도.
   - 2차 이상은 상태·담당자를 여기서 드롭다운으로 변경(보드 드래그와 동일한 API).
   - 3차는 읽기 전용.
+- **이미지 갤러리**: `images`를 썸네일 그리드로. 클릭 시 확대(라이트박스). 브랜드 소속이면
+  여기서 이미지 추가/삭제(`POST`/`DELETE .../images`). 마킹(캔버스)은 5단계.
 - **하단 활동(Activity) 타임라인**: `history`를 시간순으로 아바타 + "OOO님이 상태를
   [이전]→[이후]로 변경 · N일 전". 병합 이벤트도 여기 포함.
 - **병합된 요청자**: `duplicates`가 있으면 "이 요청에 병합된 요청: XXX(제목) — 요청자 OOO".
 - **병합 안내**: 이 건이 '중복'이면 상단에 "이 요청은 '<대상>'에 병합되었습니다" +
   대상 상세로 가는 링크.
 
+### 등록 폼 이미지 첨부 (`RequirementFormDialog` 확장)
+
+- 기존 텍스트 필드 아래에 **이미지 첨부 영역** 추가.
+- **입력 경로**(mo/pc 모두 쉽게):
+  - 파일 인풋 `accept="image/*" multiple` — 모바일에서 탭하면 카메라/갤러리 선택 제공.
+  - PC **드래그 앤 드롭** 영역.
+  - PC **클립보드 붙여넣기**(paste 핸들러) — 스크린샷 캡처 후 바로 Ctrl+V. 오류 제보에 최적.
+- 선택한 이미지는 제출 전 **로컬 미리보기 썸네일**(objectURL) + 개별 삭제 버튼.
+- 반응형: 등록 폼은 이미 Dialog로 mo/pc 대응. 썸네일 그리드도 폭에 맞춰 접힘.
+- 제출 시 앞의 "등록 시 이미지 흐름"대로 본문 생성 → 이미지 업로드.
+
 ### 목록 뷰 / badge
 
 - `RequirementList`의 `STATUS_STYLES`에 `중복: 'bg-slate-100 text-slate-400'`(muted) 추가.
 - 목록 뷰에서 '중복' 행은 흐리게 + "→ 병합됨" 표기. 카드/행 클릭 시 상세로 이동.
+- 이미지가 있는 행/카드에 클립 아이콘 + 개수(`image_count`).
 
 ## 에러 처리 / 검증
 
 - 쓰기 라우트: 필수 필드 누락 400, tier 미달 403, 대상/리소스 없음 404, 유효하지 않은
   status 400, 병합 규칙 위반 400.
+- 이미지 업로드: 허용 안 되는 MIME 400, 크기 초과 400, 개수 초과 400, 스토리지 실패 500.
 - 상세 GET: 비공개+3차 403, 없는 id 404.
 - 클라이언트:
   - 보드 드래그는 **낙관적 업데이트**(즉시 카드 이동) 후 서버 응답으로 확정하고, 실패 시
     원위치로 롤백 + 에러 토스트. 상태는 서버 응답을 최종 진실로 삼는다.
-  - 상세 사이드바 드롭다운·담당자·병합 모달 등 나머지 쓰기는 낙관적 처리 없이 성공 응답
-    후 갱신(상태 불일치 방지).
+  - 상세 사이드바 드롭다운·담당자·병합 모달·이미지 업로드 등 나머지 쓰기는 낙관적 처리
+    없이 성공 응답 후 갱신(상태 불일치 방지).
 
 ## 테스트 전략
 
@@ -263,19 +340,25 @@ Jira의 보드/리스트/이슈상세 패턴에서 이번 단계에 실제로 �
   - `computeCompletedAt(oldStatus, newStatus, prevCompletedAt)` — 완료 진입/이탈/유지 케이스.
   - `validateMerge({ sourceId, targetId, sourceStatus, targetStatus, sameBrand })` — 자기병합·
     이미중복·대상중복·타브랜드·정상 케이스.
+  - `validateImageUpload({ contentType, byteSize, currentCount })` — 허용 MIME/크기/개수
+    경계 케이스.
   - `checkBrandAccess` 기존 테스트에 '2차 이상' 판정 경로가 이미 커버됨(재확인).
-- **UI 플로우**: dev 서버 + 실제 브라우저로 진입→보드(카드 드래그로 상태 변경)→담당자
-  지정→중복병합→상세 활동 타임라인 확인→필터 바까지 직접 검증. 드래그 앤 드롭은 낙관적
-  업데이트 성공/실패(롤백) 두 경로를 모두 확인. 자동 e2e는 이 단계에서도 미도입.
+- **UI 플로우**: dev 서버 + 실제 브라우저로 진입→등록(이미지 첨부: pc 드래그·붙여넣기,
+  mo 카메라/갤러리)→보드(카드 드래그로 상태 변경)→담당자 지정→중복병합→상세(활동 타임라인·
+  이미지 갤러리) 확인→필터 바까지 직접 검증. 드래그 앤 드롭은 낙관적 업데이트 성공/실패
+  (롤백) 두 경로를 모두 확인. 자동 e2e는 이 단계에서도 미도입.
 
 ## 구현 순서 개요 (상세는 구현 계획에서)
 
-1. 마이그레이션 0002('중복' status + pg_trgm) 및 Supabase 적용.
+1. 마이그레이션 0002('중복' status + `requirement_images` + pg_trgm) 적용 + Storage
+   비공개 버킷(`requirement-images`) 생성.
 2. identity tier 심기(my-brands 응답 + 진입화면 + identity 형태).
-3. 순수 로직 + 단위 테스트(computeCompletedAt, validateMerge).
-4. API 라우트(list 필터 확장, detail, status, assignee, merge, similar).
-5. 상세 페이지(본문 + 메타 사이드바 + 활동 타임라인 + 병합 안내).
-6. 목록 뷰 필터 바 + '중복' badge/표기 + 뷰 토글.
-7. 칸반 보드 뷰(`@dnd-kit` 드래그 앤 드롭 + 카드 + 낙관적 업데이트/롤백) + 중복처리 모달
+3. 순수 로직 + 단위 테스트(computeCompletedAt, validateMerge, validateImageUpload).
+4. API 라우트(list 필터·image_count 확장, detail(+images 서명 URL), status, assignee,
+   merge, similar, images POST/DELETE).
+5. 상세 페이지(본문 + 메타 사이드바 + 활동 타임라인 + 이미지 갤러리 + 병합 안내).
+6. 등록 폼 이미지 첨부(드래그·붙여넣기·파일·미리보기·삭제).
+7. 목록 뷰 필터 바 + '중복'/이미지 badge + 뷰 토글.
+8. 칸반 보드 뷰(`@dnd-kit` 드래그 앤 드롭 + 카드 + 낙관적 업데이트/롤백) + 중복처리 모달
    + TopBar "보드" 링크(tier 게이팅).
-8. 브라우저 통합 검증.
+9. 브라우저 통합 검증.
