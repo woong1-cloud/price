@@ -7,16 +7,47 @@ import { ALLOWED_IMAGE_TYPES } from '@/lib/imageUpload';
 //  - files: File[] (부모 소유)
 //  - onAdd(newFiles: File[])
 //  - onRemove(index: number)
+function fileIdentity(file) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
 export function ImageDropzone({ files, onAdd, onRemove }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
   const [previews, setPreviews] = useState([]);
+  // id -> blob URL. Reused across renders so adding one more file doesn't
+  // regenerate (and remount) every existing thumbnail's URL.
+  const urlCacheRef = useRef(new Map());
 
   useEffect(() => {
-    const urls = files.map((f) => URL.createObjectURL(f));
-    setPreviews(urls);
-    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+    const cache = urlCacheRef.current;
+    const currentIds = new Set();
+    const next = files.map((file) => {
+      const id = fileIdentity(file);
+      currentIds.add(id);
+      let url = cache.get(id);
+      if (!url) {
+        url = URL.createObjectURL(file);
+        cache.set(id, url);
+      }
+      return { id, url };
+    });
+    for (const [id, url] of cache) {
+      if (!currentIds.has(id)) {
+        URL.revokeObjectURL(url);
+        cache.delete(id);
+      }
+    }
+    setPreviews(next);
   }, [files]);
+
+  useEffect(() => {
+    const cache = urlCacheRef.current;
+    return () => {
+      cache.forEach((url) => URL.revokeObjectURL(url));
+      cache.clear();
+    };
+  }, []);
 
   function acceptFiles(list) {
     const imgs = Array.from(list).filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
@@ -75,8 +106,8 @@ export function ImageDropzone({ files, onAdd, onRemove }) {
       </div>
       {previews.length > 0 && (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {previews.map((url, i) => (
-            <div key={url} className="relative">
+          {previews.map(({ id, url }, i) => (
+            <div key={id} className="relative">
               <img src={url} alt="" className="h-20 w-full rounded-md border border-slate-200 object-cover" />
               <button
                 type="button"
