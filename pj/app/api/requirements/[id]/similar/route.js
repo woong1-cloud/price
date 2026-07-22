@@ -24,11 +24,12 @@ export async function GET(request, { params }) {
     const supabase = getSupabaseAdmin();
     const { data: self, error: selfError } = await supabase
       .from('requirements')
-      .select('id, title, as_is, to_be')
+      .select('id, brand_id, title, as_is, to_be')
       .eq('id', id)
       .maybeSingle();
     if (selfError) throw selfError;
     if (!self) throw new ApiError(404, '요구사항을 찾을 수 없습니다.');
+    if (self.brand_id !== brandId) throw new ApiError(403, '브랜드가 일치하지 않습니다.');
 
     const { data: others, error: othersError } = await supabase
       .from('requirements')
