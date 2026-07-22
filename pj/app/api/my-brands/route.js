@@ -28,17 +28,23 @@ export async function GET(request) {
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
-      return Response.json({ brands: data });
+      const brands = (data ?? []).map((b) => ({ ...b, tier: '1차' }));
+      return Response.json({ brands });
     }
 
     const { data, error } = await supabase
       .from('user_brand_roles')
-      .select('brand:brands(id, name, code, is_active)')
+      .select('tier, brand:brands(id, name, code, is_active)')
       .eq('team_member_id', memberId);
     if (error) throw error;
     const brands = (data ?? [])
-      .map((row) => row.brand)
-      .filter((brand) => brand && brand.is_active);
+      .filter((row) => row.brand && row.brand.is_active)
+      .map((row) => ({
+        id: row.brand.id,
+        name: row.brand.name,
+        code: row.brand.code,
+        tier: row.tier,
+      }));
     return Response.json({ brands });
   } catch (error) {
     return errorResponse(error);
