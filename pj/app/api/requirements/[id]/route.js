@@ -48,12 +48,13 @@ export async function GET(request, { params }) {
 
     let mergedInto = null;
     if (requirement.status === MERGED_STATUS) {
-      const { data: link } = await supabase
+      const { data: link, error: linkError } = await supabase
         .from('duplicate_links')
         .select('target:requirements!duplicate_links_requirement_id_fkey(id, title)')
         .like('linked_note', `% (#${id})`)
         .limit(1)
         .maybeSingle();
+      if (linkError) throw linkError;
       if (link?.target) mergedInto = { id: link.target.id, title: link.target.title };
     }
 
