@@ -78,19 +78,23 @@ export function BrandFormDialog({ open, onOpenChange, brand, teamMembers, identi
           workflowTemplate: form.workflowTemplate,
           adminMemberId: adminId,
         };
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    setSubmitting(false);
-    if (!res.ok) {
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       const d = await res.json();
-      setError(d.error ?? '저장에 실패했습니다.');
-      return;
+      if (!res.ok) {
+        throw new Error(d.error ?? '저장에 실패했습니다.');
+      }
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
-    onOpenChange(false);
-    onSaved();
   }
 
   const adminName = teamMembers.find((m) => m.id === adminId)?.name ?? '';
