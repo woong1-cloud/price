@@ -41,6 +41,9 @@ export async function POST(request) {
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
     if (!targetMemberId) throw new ApiError(400, 'targetMemberId가 필요합니다.');
     if (!['2차', '3차'].includes(tier)) throw new ApiError(400, '유효하지 않은 tier입니다.');
+    if (subRole && !['기획', '개발', '뷰어'].includes(subRole)) {
+      throw new ApiError(400, '유효하지 않은 역할입니다.');
+    }
 
     await requireBrandAccess(memberId, brandId, '2차');
 
