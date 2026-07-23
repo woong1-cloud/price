@@ -46,3 +46,26 @@ export async function requireBrandAccess(memberId, brandId, minTier) {
 
   return { isGlobalAdmin: member.is_global_admin, tier: result.tier };
 }
+
+export async function requireGlobalAdmin(memberId) {
+  if (!memberId) {
+    throw new ApiError(400, 'memberId가 필요합니다.');
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: member, error } = await supabase
+    .from('team_members')
+    .select('id, is_active, is_global_admin')
+    .eq('id', memberId)
+    .single();
+
+  if (error) {
+    console.error(error);
+    throw new ApiError(500, '사용자 조회 중 오류가 발생했습니다.');
+  }
+  if (!member || !member.is_active || !member.is_global_admin) {
+    throw new ApiError(403, '전역 관리자 권한이 필요합니다.');
+  }
+
+  return { isGlobalAdmin: true };
+}
