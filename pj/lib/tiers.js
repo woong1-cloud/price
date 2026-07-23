@@ -4,3 +4,7 @@ export const TIER_RANK = { '3차': 1, '2차': 2, '1차': 3 };
 export function canManage(identity) {
   return identity?.tier === '1차' || identity?.tier === '2차';
 }
+
+export function isGlobalAdmin(identity) {
+  return identity?.isGlobalAdmin === true;
+}
