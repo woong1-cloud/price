@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useIdentity } from './IdentityProvider';
-import { canManage } from '@/lib/tiers';
+import { canManage, isGlobalAdmin } from '@/lib/tiers';
 
 export function TopBar() {
   const { identity, switchUser } = useIdentity();
   const manage = canManage(identity);
+  const globalAdmin = isGlobalAdmin(identity);
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
       <div className="flex items-center gap-3 text-sm">
@@ -22,6 +23,16 @@ export function TopBar() {
         {manage && (
           <Link href="/requirements/board" className="text-slate-500 hover:text-slate-700">
             보드
+          </Link>
+        )}
+        {manage && (
+          <Link href="/requirements/settings" className="text-slate-500 hover:text-slate-700">
+            설정
+          </Link>
+        )}
+        {globalAdmin && (
+          <Link href="/admin/brands" className="text-slate-500 hover:text-slate-700">
+            브랜드 관리
           </Link>
         )}
       </div>
