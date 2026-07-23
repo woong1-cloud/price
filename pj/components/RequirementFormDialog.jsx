@@ -22,6 +22,32 @@ import {
 } from '@/components/ui/select';
 import { ImageDropzone } from '@/components/ImageDropzone';
 
+const LEVELS = ['상', '중', '하'];
+const LEVEL_STYLE = {
+  상: { on: 'border-rose-300 bg-rose-50 text-rose-600', off: 'border-slate-200 text-slate-400 hover:bg-slate-50' },
+  중: { on: 'border-amber-300 bg-amber-50 text-amber-700', off: 'border-slate-200 text-slate-400 hover:bg-slate-50' },
+  하: { on: 'border-slate-300 bg-slate-100 text-slate-600', off: 'border-slate-200 text-slate-400 hover:bg-slate-50' },
+};
+
+function LevelSelect({ id, value, onChange }) {
+  return (
+    <div id={id} className="flex gap-1.5">
+      {LEVELS.map((level) => (
+        <button
+          key={level}
+          type="button"
+          onClick={() => onChange(value === level ? '' : level)}
+          className={`flex-1 rounded-lg border px-2 py-1.5 text-sm transition-colors ${
+            value === level ? LEVEL_STYLE[level].on : LEVEL_STYLE[level].off
+          }`}
+        >
+          {level}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function todayLocal() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -144,20 +170,18 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <Label htmlFor="priority">우선순위</Label>
-              <Input
+              <LevelSelect
                 id="priority"
                 value={form.priority}
-                onChange={(e) => updateField('priority', e.target.value)}
-                placeholder="상/중/하"
+                onChange={(v) => updateField('priority', v)}
               />
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="urgency">긴급도</Label>
-              <Input
+              <LevelSelect
                 id="urgency"
                 value={form.urgency}
-                onChange={(e) => updateField('urgency', e.target.value)}
-                placeholder="상/중/하"
+                onChange={(v) => updateField('urgency', v)}
               />
             </div>
           </div>
