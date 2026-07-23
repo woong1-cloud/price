@@ -13,8 +13,14 @@ export async function PATCH(request, { params }) {
     await requireGlobalAdmin(memberId);
 
     const updates = {};
-    if (name !== undefined) updates.name = name.trim();
-    if (code !== undefined) updates.code = code.trim();
+    if (name !== undefined) {
+      if (!name.trim()) throw new ApiError(400, '이름은 필수입니다.');
+      updates.name = name.trim();
+    }
+    if (code !== undefined) {
+      if (!code.trim()) throw new ApiError(400, '코드는 필수입니다.');
+      updates.code = code.trim();
+    }
     if (workflowTemplate !== undefined) updates.workflow_template = workflowTemplate;
     if (isActive !== undefined) updates.is_active = isActive;
     if (Object.keys(updates).length === 0) throw new ApiError(400, '수정할 필드가 없습니다.');
