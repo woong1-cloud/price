@@ -80,7 +80,7 @@ export function BrandTeamAssignDialog({ open, onOpenChange, candidates, identity
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>팀원 배치</DialogTitle>
         </DialogHeader>
