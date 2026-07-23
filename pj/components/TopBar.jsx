@@ -1,17 +1,28 @@
 'use client';
 
+import Link from 'next/link';
 import { useIdentity } from './IdentityProvider';
+import { canManage } from '@/lib/tiers';
 
 export function TopBar() {
   const { identity, switchUser } = useIdentity();
+  const manage = canManage(identity);
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-3 text-sm">
         <span className="font-medium text-slate-900">{identity.name}</span>
         {identity.isGlobalAdmin && (
           <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
             전체 관리자
           </span>
+        )}
+        <Link href="/requirements" className="text-slate-500 hover:text-slate-700">
+          목록
+        </Link>
+        {manage && (
+          <Link href="/requirements/board" className="text-slate-500 hover:text-slate-700">
+            보드
+          </Link>
         )}
       </div>
       <button onClick={switchUser} className="text-sm text-slate-500 underline hover:text-slate-700">
