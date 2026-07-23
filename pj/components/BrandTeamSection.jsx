@@ -16,6 +16,8 @@ const SUB_ROLES = ['기획', '개발', '뷰어'];
 // props: members(브랜드 배치 목록), teamMembers(전사 활성 풀), identity, onChanged()
 export function BrandTeamSection({ members, teamMembers, identity, onChanged }) {
   const [error, setError] = useState('');
+  // 배치 다이얼로그의 candidates 계산에 members가 필요해, 다이얼로그 상태를 부모 페이지로
+  // 올리지 않고 이 섹션이 직접 소유한다(다른 페이지의 다이얼로그는 보통 부모가 소유).
   const [assignOpen, setAssignOpen] = useState(false);
 
   const assignedIds = new Set(members.map((m) => m.id));

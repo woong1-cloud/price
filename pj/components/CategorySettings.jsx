@@ -59,7 +59,6 @@ export function CategorySettings({ categories, identity, onChanged }) {
     ]);
     if (!resA.ok || !resB.ok) {
       setError('순서 변경 실패');
-      return;
     }
     onChanged();
   }
