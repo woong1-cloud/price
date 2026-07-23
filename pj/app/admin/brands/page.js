@@ -40,11 +40,15 @@ export default function AdminBrandsPage() {
         if (!cancelled) setLoadError(e.message);
       });
     fetch('/api/team-members?includeInactive=true')
-      .then((res) => res.json())
-      .then((d) => {
-        if (!cancelled) setTeamMembers(d.teamMembers ?? []);
+      .then((res) => res.json().then((d) => ({ res, d })))
+      .then(({ res, d }) => {
+        if (cancelled) return;
+        if (!res.ok) throw new Error(d.error ?? '팀원 목록을 불러오지 못했습니다.');
+        setTeamMembers(d.teamMembers ?? []);
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (!cancelled) setLoadError(e.message);
+      });
     return () => {
       cancelled = true;
     };
