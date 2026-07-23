@@ -17,8 +17,18 @@ export default function RequirementsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [filters, setFilters] = useState({ assignee: '', category: '', priority: '' });
-  const [loading, setLoading] = useState(true);
+  // 직접 setLoading(true/false)를 effect 안에서 호출하지 않고, "이 조회 조건에 대한
+  // 응답을 이미 받았는지"를 key 비교로 파생시킨다(react-hooks/set-state-in-effect 회피).
+  const [loadedKey, setLoadedKey] = useState('');
   const [error, setError] = useState('');
+
+  const currentKey = JSON.stringify({
+    brandId: identity.brandId,
+    memberId: identity.memberId,
+    reloadToken,
+    filters,
+  });
+  const loading = loadedKey !== currentKey;
 
   function refreshRequirements() {
     setReloadToken((t) => t + 1);
@@ -37,7 +47,6 @@ export default function RequirementsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     const params = new URLSearchParams({ brandId: identity.brandId, memberId: identity.memberId });
     if (filters.assignee) params.set('assignee', filters.assignee);
     if (filters.category) params.set('category', filters.category);
@@ -54,11 +63,12 @@ export default function RequirementsPage() {
         if (!cancelled) setError(e.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadedKey(currentKey);
       });
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity.brandId, identity.memberId, reloadToken, filters]);
 
   return (
