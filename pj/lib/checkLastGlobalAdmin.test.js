@@ -32,4 +32,9 @@ describe('checkLastGlobalAdmin', () => {
     ];
     expect(checkLastGlobalAdmin({ teamMembers, targetMemberId: 'm1' })).toBe(true);
   });
+
+  it('대상이 목록에 없으면 false', () => {
+    const teamMembers = [{ id: 'm1', is_global_admin: true, is_active: true }];
+    expect(checkLastGlobalAdmin({ teamMembers, targetMemberId: 'm2' })).toBe(false);
+  });
 });
