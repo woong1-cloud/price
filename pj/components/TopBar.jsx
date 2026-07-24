@@ -35,6 +35,11 @@ export function TopBar() {
             브랜드 관리
           </Link>
         )}
+        {globalAdmin && (
+          <Link href="/admin/dashboard" className="text-slate-500 hover:text-slate-700">
+            대시보드
+          </Link>
+        )}
       </div>
       <button onClick={switchUser} className="text-sm text-slate-500 underline hover:text-slate-700">
         다른 사용자로 전환
