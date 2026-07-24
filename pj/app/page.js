@@ -78,8 +78,8 @@ export default function EntryPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center bg-slate-50 p-6">
-      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6">
+      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-xl font-semibold text-slate-900">요구사항 관리</h1>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
