@@ -24,7 +24,7 @@ export async function POST(request, { params }) {
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
     if (files.length === 0) throw new ApiError(400, '업로드할 이미지가 없습니다.');
 
-    await requireBrandAccess(memberId, brandId, '3차');
+    await requireBrandAccess(memberId, brandId, '4차');
 
     const supabase = getSupabaseAdmin();
     const { data: current, error: curError } = await supabase

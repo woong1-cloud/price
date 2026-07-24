@@ -11,7 +11,7 @@ export async function DELETE(request, { params }) {
     const brandId = searchParams.get('brandId');
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '3차');
+    await requireBrandAccess(memberId, brandId, '4차');
 
     const supabase = getSupabaseAdmin();
     const { data: image, error: imgError } = await supabase
