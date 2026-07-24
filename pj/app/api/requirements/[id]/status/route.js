@@ -17,7 +17,7 @@ export async function PATCH(request, { params }) {
       throw new ApiError(400, '유효하지 않은 상태입니다.');
     }
 
-    await requireBrandAccess(memberId, brandId, '2차');
+    await requireBrandAccess(memberId, brandId, '3차');
 
     const supabase = getSupabaseAdmin();
     const { data: current, error: curError } = await supabase

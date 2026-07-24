@@ -9,7 +9,7 @@ export async function PATCH(request, { params }) {
     const { memberId, brandId, assignee } = body; // assignee: team_member id 또는 null
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '2차');
+    await requireBrandAccess(memberId, brandId, '3차');
 
     const supabase = getSupabaseAdmin();
     const { data: current, error: curError } = await supabase

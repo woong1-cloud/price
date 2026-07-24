@@ -15,8 +15,8 @@ export async function GET(request) {
     const category = searchParams.get('category');
     const priority = searchParams.get('priority');
 
-    const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, brandId, '3차');
-    const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['2차'];
+    const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, brandId, '4차');
+    const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
 
     const supabase = getSupabaseAdmin();
     let query = supabase
@@ -71,8 +71,8 @@ export async function POST(request) {
     if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
     if (!title || !title.trim()) throw new ApiError(400, '제목은 필수입니다.');
 
-    const { isGlobalAdmin, tier } = await requireBrandAccess(memberId, brandId, '3차');
-    const canSetConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['2차'];
+    const { isGlobalAdmin, tier } = await requireBrandAccess(memberId, brandId, '4차');
+    const canSetConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
