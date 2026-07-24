@@ -1,3 +1,5 @@
+import { DONE_STATUS, MERGED_STATUS } from './statuses';
+
 function addDays(dateStr, delta) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + delta);
@@ -20,12 +22,12 @@ export function computeDashboardStats({ requirements, brands, periodDays, today 
   const byBrand = brands.map((brand) => {
     const brandReqs = requirements.filter((r) => r.brand_id === brand.id);
 
-    const openCount = brandReqs.filter((r) => r.status !== '완료' && r.status !== '중복').length;
+    const openCount = brandReqs.filter((r) => r.status !== DONE_STATUS && r.status !== MERGED_STATUS).length;
 
     const newInPeriod = brandReqs.filter((r) => cutoff === null || r.request_date >= cutoff).length;
 
     const completedReqs = brandReqs.filter(
-      (r) => r.status === '완료' && (cutoff === null || dateOnly(r.completed_at) >= cutoff)
+      (r) => r.status === DONE_STATUS && (cutoff === null || dateOnly(r.completed_at) >= cutoff)
     );
     const completedInPeriod = completedReqs.length;
 
