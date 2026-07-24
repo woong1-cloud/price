@@ -21,7 +21,7 @@ describe('isGlobalAdmin', () => {
 
 describe('canProcess', () => {
   it('1차는 true', () => {
-    expect(canProcess({ isGlobalAdmin: true, tier: '1차' })).toBe(true);
+    expect(canProcess({ tier: '1차' })).toBe(true);
   });
   it('2차는 true', () => {
     expect(canProcess({ tier: '2차' })).toBe(true);
@@ -39,7 +39,7 @@ describe('canProcess', () => {
 
 describe('canManageBrand', () => {
   it('1차는 true', () => {
-    expect(canManageBrand({ isGlobalAdmin: true, tier: '1차' })).toBe(true);
+    expect(canManageBrand({ tier: '1차' })).toBe(true);
   });
   it('2차는 true', () => {
     expect(canManageBrand({ tier: '2차' })).toBe(true);
