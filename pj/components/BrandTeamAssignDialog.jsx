@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TIER_LABELS } from '@/lib/tiers';
 
 const TIERS = ['2차', '3차'];
 const SUB_ROLES = ['기획', '개발', '뷰어'];
@@ -110,15 +111,19 @@ export function BrandTeamAssignDialog({ open, onOpenChange, candidates, identity
             <>
               <p className="text-slate-500">&lsquo;{targetName}&rsquo; 배치</p>
               <div className="flex flex-col gap-1">
-                <Label>tier</Label>
-                <Select items={TIERS.map((t) => ({ value: t, label: t }))} value={tier} onValueChange={setTier}>
+                <Label>권한 등급</Label>
+                <Select
+                  items={TIERS.map((t) => ({ value: t, label: TIER_LABELS[t] }))}
+                  value={tier}
+                  onValueChange={setTier}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {TIERS.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {t}
+                        {TIER_LABELS[t]}
                       </SelectItem>
                     ))}
                   </SelectContent>

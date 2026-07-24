@@ -241,7 +241,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
               checked={form.isConfidential}
               onCheckedChange={(checked) => updateField('isConfidential', Boolean(checked))}
             />
-            <Label htmlFor="isConfidential">비공개 요구사항 (2차 이상만 조회 가능)</Label>
+            <Label htmlFor="isConfidential">비공개 요구사항 (브랜드 관리자 이상만 조회 가능)</Label>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700">

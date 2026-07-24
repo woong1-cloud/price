@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { BrandTeamAssignDialog } from '@/components/BrandTeamAssignDialog';
+import { TIER_LABELS } from '@/lib/tiers';
 
 const TIERS = ['2차', '3차'];
 const SUB_ROLES = ['기획', '개발', '뷰어'];
@@ -69,7 +70,7 @@ export function BrandTeamSection({ members, teamMembers, identity, onChanged }) 
         <thead>
           <tr className="border-b border-slate-200 text-left text-slate-500">
             <th className="py-2">이름</th>
-            <th className="py-2">tier</th>
+            <th className="py-2">권한 등급</th>
             <th className="py-2">역할</th>
             <th className="py-2" />
           </tr>
@@ -80,17 +81,17 @@ export function BrandTeamSection({ members, teamMembers, identity, onChanged }) 
               <td className="py-2">{m.name}</td>
               <td className="py-2">
                 <Select
-                  items={TIERS.map((t) => ({ value: t, label: t }))}
+                  items={TIERS.map((t) => ({ value: t, label: TIER_LABELS[t] }))}
                   value={m.tier}
                   onValueChange={(v) => updateRole(m.id, { tier: v })}
                 >
-                  <SelectTrigger className="h-8 w-24 text-xs">
+                  <SelectTrigger className="h-8 w-28 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {TIERS.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {t}
+                        {TIER_LABELS[t]}
                       </SelectItem>
                     ))}
                   </SelectContent>

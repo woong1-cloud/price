@@ -62,7 +62,7 @@ export function BrandFormDialog({ open, onOpenChange, brand, teamMembers, identi
   async function handleSubmit(event) {
     event.preventDefault();
     if (!isEdit && !adminId) {
-      setError('초기 2차 관리자를 선택해주세요.');
+      setError('초기 브랜드 관리자를 선택해주세요.');
       return;
     }
     setSubmitting(true);
@@ -137,7 +137,7 @@ export function BrandFormDialog({ open, onOpenChange, brand, teamMembers, identi
 
           {!isEdit && (
             <div className="flex flex-col gap-1">
-              <Label>초기 2차 관리자</Label>
+              <Label>초기 브랜드 관리자</Label>
               <Input placeholder="이름으로 검색" value={search} onChange={(e) => setSearch(e.target.value)} />
               {adminId && <p className="text-xs text-slate-500">선택됨: {adminName}</p>}
               <ul className="mt-1 flex flex-col gap-1">
