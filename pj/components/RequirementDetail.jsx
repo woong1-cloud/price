@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useIdentity } from '@/components/IdentityProvider';
-import { canManage } from '@/lib/tiers';
+import { canProcess } from '@/lib/tiers';
 import { BOARD_STATUSES } from '@/lib/statuses';
 import { ImageDropzone } from '@/components/ImageDropzone';
 import {
@@ -20,7 +20,7 @@ function fmt(dt) {
 
 export function RequirementDetail({ id }) {
   const { identity } = useIdentity();
-  const manage = canManage(identity);
+  const processAllowed = canProcess(identity);
   const [data, setData] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   // loadError: 최초/재조회 실패 — 화면 전체를 대체한다.
@@ -201,7 +201,7 @@ export function RequirementDetail({ id }) {
         <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm">
           <div>
             <p className="text-slate-500">상태</p>
-            {manage ? (
+            {processAllowed ? (
               <Select
                 items={BOARD_STATUSES.map((s) => ({ value: s, label: s }))}
                 value={r.status}
@@ -224,7 +224,7 @@ export function RequirementDetail({ id }) {
           </div>
           <div>
             <p className="text-slate-500">담당자</p>
-            {manage ? (
+            {processAllowed ? (
               <Select
                 items={[
                   { value: '__none__', label: '미지정' },
