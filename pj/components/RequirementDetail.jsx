@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useIdentity } from '@/components/IdentityProvider';
 import { canProcess } from '@/lib/tiers';
-import { BOARD_STATUSES } from '@/lib/statuses';
+import { BOARD_STATUSES, DONE_STATUS, MERGED_STATUS } from '@/lib/statuses';
 import { ImageDropzone } from '@/components/ImageDropzone';
+import { RequirementEditForm } from '@/components/RequirementEditForm';
 import {
   Select,
   SelectContent,
@@ -21,6 +22,7 @@ function fmt(dt) {
 export function RequirementDetail({ id }) {
   const { identity } = useIdentity();
   const processAllowed = canProcess(identity);
+  const [editing, setEditing] = useState(false);
   const [data, setData] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   // loadError: 최초/재조회 실패 — 화면 전체를 대체한다.
@@ -122,6 +124,11 @@ export function RequirementDetail({ id }) {
 
   const { requirement: r, history, duplicates, mergedInto, images } = data;
 
+  const canEdit =
+    (processAllowed || r.requester?.id === identity.memberId) &&
+    r.status !== DONE_STATUS &&
+    r.status !== MERGED_STATUS;
+
   return (
     <div className="flex flex-col gap-4">
       <Link href="/requirements" className="text-sm text-slate-500 hover:text-slate-700">
@@ -142,19 +149,45 @@ export function RequirementDetail({ id }) {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="flex flex-col gap-4 md:col-span-2">
-          <h1 className="text-lg font-semibold text-slate-900">{r.title}</h1>
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-1 text-sm font-medium text-slate-500">As-Is</h2>
-            <p className="whitespace-pre-wrap text-sm text-slate-900">{r.as_is || '-'}</p>
-          </section>
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-1 text-sm font-medium text-slate-500">To-Be</h2>
-            <p className="whitespace-pre-wrap text-sm text-slate-900">{r.to_be || '-'}</p>
-          </section>
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-1 text-sm font-medium text-slate-500">비고</h2>
-            <p className="whitespace-pre-wrap text-sm text-slate-900">{r.note || '-'}</p>
-          </section>
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-semibold text-slate-900">{r.title}</h1>
+            {canEdit && !editing && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="text-sm text-indigo-600 hover:underline"
+              >
+                수정
+              </button>
+            )}
+          </div>
+          {editing ? (
+            <RequirementEditForm
+              requirement={r}
+              canSetConfidential={processAllowed}
+              identity={identity}
+              onSaved={() => {
+                setEditing(false);
+                load();
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          ) : (
+            <>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h2 className="mb-1 text-sm font-medium text-slate-500">As-Is</h2>
+                <p className="whitespace-pre-wrap text-sm text-slate-900">{r.as_is || '-'}</p>
+              </section>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h2 className="mb-1 text-sm font-medium text-slate-500">To-Be</h2>
+                <p className="whitespace-pre-wrap text-sm text-slate-900">{r.to_be || '-'}</p>
+              </section>
+              <section className="rounded-lg border border-slate-200 bg-white p-4">
+                <h2 className="mb-1 text-sm font-medium text-slate-500">비고</h2>
+                <p className="whitespace-pre-wrap text-sm text-slate-900">{r.note || '-'}</p>
+              </section>
+            </>
+          )}
 
           <section className="rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="mb-2 text-sm font-medium text-slate-500">이미지</h2>
@@ -281,7 +314,10 @@ export function RequirementDetail({ id }) {
                 {(h.changer?.name ?? '?').slice(0, 1)}
               </span>
               <span>
-                {h.changer?.name ?? '누군가'}님이 {h.change_type === '중복병합' ? h.comment : `상태를 ${h.old_value}→${h.new_value}로 변경`}
+                {h.changer?.name ?? '누군가'}님이{' '}
+                {h.change_type === '내용수정' || h.change_type === '중복병합'
+                  ? h.comment
+                  : `상태를 ${h.old_value}→${h.new_value}로 변경`}
                 <span className="text-slate-400"> · {fmt(h.created_at)}</span>
               </span>
             </li>
