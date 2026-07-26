@@ -20,7 +20,7 @@ export async function PATCH(request, { params }) {
         .select('id, is_global_admin, is_active');
       if (listError) throw listError;
       if (checkLastGlobalAdmin({ teamMembers, targetMemberId: id })) {
-        throw new ApiError(400, '이 시스템의 마지막 전체 관리자는 해제할 수 없습니다.');
+        throw new ApiError(400, '이 시스템의 마지막 전체 관리자는 해제하거나 강등할 수 없습니다.');
       }
     }
 
