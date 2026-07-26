@@ -1,16 +1,28 @@
-// app/api/team-members/[id]/route.js
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
 import { errorResponse, ApiError } from '@/lib/apiError';
+import { checkLastGlobalAdmin } from '@/lib/checkLastGlobalAdmin';
 
 export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { memberId, name, isActive } = body;
+    const { memberId, name, isActive, isGlobalAdmin } = body;
     if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
 
     await requireGlobalAdmin(memberId);
+
+    const supabase = getSupabaseAdmin();
+
+    if (isGlobalAdmin === false || isActive === false) {
+      const { data: teamMembers, error: listError } = await supabase
+        .from('team_members')
+        .select('id, is_global_admin, is_active');
+      if (listError) throw listError;
+      if (checkLastGlobalAdmin({ teamMembers, targetMemberId: id })) {
+        throw new ApiError(400, '이 시스템의 마지막 전체 관리자는 해제할 수 없습니다.');
+      }
+    }
 
     const updates = {};
     if (name !== undefined) {
@@ -18,9 +30,9 @@ export async function PATCH(request, { params }) {
       updates.name = name.trim();
     }
     if (isActive !== undefined) updates.is_active = isActive;
+    if (isGlobalAdmin !== undefined) updates.is_global_admin = isGlobalAdmin;
     if (Object.keys(updates).length === 0) throw new ApiError(400, '수정할 필드가 없습니다.');
 
-    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('team_members')
       .update(updates)
