@@ -128,6 +128,8 @@ export function RequirementDetail({ id }) {
     (processAllowed || r.requester?.id === identity.memberId) &&
     r.status !== DONE_STATUS &&
     r.status !== MERGED_STATUS;
+  // canEdit이 false로 바뀌면(예: 편집 중 상태를 완료/중복으로 변경) 편집 폼을 자동으로 닫는다.
+  const showEditForm = editing && canEdit;
 
   return (
     <div className="flex flex-col gap-4">
@@ -151,7 +153,7 @@ export function RequirementDetail({ id }) {
         <div className="flex flex-col gap-4 md:col-span-2">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-semibold text-slate-900">{r.title}</h1>
-            {canEdit && !editing && (
+            {canEdit && !showEditForm && (
               <button
                 type="button"
                 onClick={() => setEditing(true)}
@@ -161,7 +163,7 @@ export function RequirementDetail({ id }) {
               </button>
             )}
           </div>
-          {editing ? (
+          {showEditForm ? (
             <RequirementEditForm
               requirement={r}
               canSetConfidential={processAllowed}
