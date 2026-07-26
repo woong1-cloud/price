@@ -88,6 +88,21 @@ export default function AdminBrandsPage() {
     refresh();
   }
 
+  async function toggleGlobalAdmin(member) {
+    setActionError('');
+    const res = await fetch(`/api/team-members/${member.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId: identity.memberId, isGlobalAdmin: !member.is_global_admin }),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      setActionError(d.error ?? '전체관리자 권한 변경 실패');
+      return;
+    }
+    refresh();
+  }
+
   if (!globalAdmin) {
     return <p className="text-sm text-slate-500">권한이 없습니다. 목록으로 이동합니다...</p>;
   }
@@ -182,7 +197,14 @@ export default function AdminBrandsPage() {
           <tbody>
             {teamMembers.map((m) => (
               <tr key={m.id} className="border-b border-slate-100">
-                <td className="py-2">{m.name}</td>
+                <td className="py-2">
+                  {m.name}
+                  {m.is_global_admin && (
+                    <span className="ml-2 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                      전체관리자
+                    </span>
+                  )}
+                </td>
                 <td className="py-2">
                   <span
                     className={`rounded px-1.5 py-0.5 text-xs ${
@@ -193,6 +215,13 @@ export default function AdminBrandsPage() {
                   </span>
                 </td>
                 <td className="py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => toggleGlobalAdmin(m)}
+                    className="mr-3 text-indigo-600 hover:underline"
+                  >
+                    {m.is_global_admin ? '전체관리자 해제' : '전체관리자 지정'}
+                  </button>
                   <button type="button" onClick={() => toggleMemberActive(m)} className="text-slate-500 hover:underline">
                     {m.is_active ? '비활성화' : '활성화'}
                   </button>
