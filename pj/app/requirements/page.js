@@ -3,14 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useIdentity } from '@/components/IdentityProvider';
-import { canManage } from '@/lib/tiers';
+import { canProcess } from '@/lib/tiers';
 import { RequirementList } from '@/components/RequirementList';
 import { RequirementFormDialog } from '@/components/RequirementFormDialog';
 import { FilterBar } from '@/components/FilterBar';
 
 export default function RequirementsPage() {
   const { identity } = useIdentity();
-  const manage = canManage(identity);
+  const processAllowed = canProcess(identity);
   const [requirements, setRequirements] = useState([]);
   const [categories, setCategories] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -76,7 +76,7 @@ export default function RequirementsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-slate-900">요구사항 목록</h1>
         <div className="flex items-center gap-2">
-          {manage && (
+          {processAllowed && (
             <Link
               href="/requirements/board"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"

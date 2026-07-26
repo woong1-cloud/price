@@ -3,14 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIdentity } from '@/components/IdentityProvider';
-import { canManage } from '@/lib/tiers';
+import { canManageBrand } from '@/lib/tiers';
 import { BrandTeamSection } from '@/components/BrandTeamSection';
 import { CategorySettings } from '@/components/CategorySettings';
 
 export default function SettingsPage() {
   const { identity } = useIdentity();
   const router = useRouter();
-  const manage = canManage(identity);
+  const manageBrand = canManageBrand(identity);
 
   const [members, setMembers] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -19,11 +19,11 @@ export default function SettingsPage() {
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    if (!manage) router.replace('/requirements');
-  }, [manage, router]);
+    if (!manageBrand) router.replace('/requirements');
+  }, [manageBrand, router]);
 
   useEffect(() => {
-    if (!manage) return undefined;
+    if (!manageBrand) return undefined;
     let cancelled = false;
     fetch(`/api/brand-team?memberId=${identity.memberId}&brandId=${identity.brandId}`)
       .then((res) => res.json().then((d) => ({ res, d })))
@@ -55,13 +55,13 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [manage, identity.memberId, identity.brandId, reloadToken]);
+  }, [manageBrand, identity.memberId, identity.brandId, reloadToken]);
 
   function refresh() {
     setReloadToken((t) => t + 1);
   }
 
-  if (!manage) {
+  if (!manageBrand) {
     return <p className="text-sm text-slate-500">권한이 없습니다. 목록으로 이동합니다...</p>;
   }
   if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;

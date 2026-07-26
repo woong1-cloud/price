@@ -3,19 +3,19 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIdentity } from '@/components/IdentityProvider';
-import { canManage } from '@/lib/tiers';
+import { canProcess } from '@/lib/tiers';
 import { KanbanBoard } from '@/components/KanbanBoard';
 
 export default function BoardPage() {
   const { identity } = useIdentity();
   const router = useRouter();
-  const manage = canManage(identity);
+  const processAllowed = canProcess(identity);
 
   useEffect(() => {
-    if (!manage) router.replace('/requirements');
-  }, [manage, router]);
+    if (!processAllowed) router.replace('/requirements');
+  }, [processAllowed, router]);
 
-  if (!manage) return <p className="text-sm text-slate-500">권한이 없습니다. 목록으로 이동합니다...</p>;
+  if (!processAllowed) return <p className="text-sm text-slate-500">권한이 없습니다. 목록으로 이동합니다...</p>;
 
   return (
     <div className="flex flex-col gap-4">
