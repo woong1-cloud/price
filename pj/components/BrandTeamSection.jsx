@@ -11,7 +11,7 @@ import {
 import { BrandTeamAssignDialog } from '@/components/BrandTeamAssignDialog';
 import { TIER_LABELS } from '@/lib/tiers';
 
-const TIERS = ['2차', '3차'];
+const TIERS = ['3차', '4차'];
 const SUB_ROLES = ['기획', '개발', '뷰어'];
 
 // props: members(브랜드 배치 목록), teamMembers(전사 활성 풀), identity, onChanged()

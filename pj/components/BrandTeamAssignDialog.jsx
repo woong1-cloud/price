@@ -20,14 +20,14 @@ import {
 } from '@/components/ui/select';
 import { TIER_LABELS } from '@/lib/tiers';
 
-const TIERS = ['2차', '3차'];
+const TIERS = ['3차', '4차'];
 const SUB_ROLES = ['기획', '개발', '뷰어'];
 
 // props: open, onOpenChange, candidates(미배치 전사 활성 직원), identity, onAssigned()
 export function BrandTeamAssignDialog({ open, onOpenChange, candidates, identity, onAssigned }) {
   const [search, setSearch] = useState('');
   const [targetId, setTargetId] = useState(null);
-  const [tier, setTier] = useState('3차');
+  const [tier, setTier] = useState('4차');
   const [subRole, setSubRole] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +39,7 @@ export function BrandTeamAssignDialog({ open, onOpenChange, candidates, identity
     if (open) {
       setSearch('');
       setTargetId(null);
-      setTier('3차');
+      setTier('4차');
       setSubRole(null);
       setError('');
     }
