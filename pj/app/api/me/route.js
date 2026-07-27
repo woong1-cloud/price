@@ -4,7 +4,7 @@ import { errorResponse } from '@/lib/apiError';
 
 export async function GET() {
   try {
-    const { memberId, isGlobalAdmin } = await getSessionMember();
+    const { memberId, isGlobalAdmin } = await getSessionMember({ allowPendingPasswordChange: true });
 
     const supabase = getSupabaseAdmin();
     const { data: member, error } = await supabase

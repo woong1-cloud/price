@@ -9,6 +9,8 @@ export async function GET(request) {
     const brandId = searchParams.get('brandId');
     if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
+    await requireBrandAccess(brandId, '4차');
+
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('brand_categories')

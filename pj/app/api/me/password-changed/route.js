@@ -4,7 +4,7 @@ import { errorResponse } from '@/lib/apiError';
 
 export async function POST() {
   try {
-    const { memberId } = await getSessionMember();
+    const { memberId } = await getSessionMember({ allowPendingPasswordChange: true });
 
     const supabase = getSupabaseAdmin();
     const { error } = await supabase
