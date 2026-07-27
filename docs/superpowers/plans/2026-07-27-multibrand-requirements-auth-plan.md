@@ -584,11 +584,15 @@ EOF
 // app/api/team-members/route.js
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
+import { getSessionMember } from '@/lib/auth';
 import { errorResponse, ApiError } from '@/lib/apiError';
 
 export async function GET(request) {
   try {
-    await requireGlobalAdmin();
+    // 목록 조회는 로그인한 모든 팀원이 필요로 한다(요구사항 담당자 표시,
+    // 브랜드 설정의 팀 배치 등 1차가 아닌 사용자도 쓰는 화면이 많다) —
+    // requireGlobalAdmin이 아니라 세션 존재만 확인한다.
+    await getSessionMember();
 
     const { searchParams } = new URL(request.url);
     const includeInactive = searchParams.get('includeInactive') === 'true';
@@ -630,7 +634,7 @@ export async function POST(request) {
 }
 ```
 
-바뀐 점: (1) GET에 `requireGlobalAdmin()` 인증이 새로 생겼다(기존엔 전혀 없었음). (2) `select`에 `auth_user_id`를 추가해서 `/admin/brands` 화면이 "계정 생성" 버튼을 보여줄지 "비밀번호 재설정" 버튼을 보여줄지 판단할 수 있게 했다. (3) POST가 더 이상 body의 `memberId`를 읽지 않는다.
+바뀐 점: (1) GET에 로그인 여부 확인(`getSessionMember()`)이 새로 생겼다(기존엔 전혀 없었음) — 전체관리자로 제한하지 않는 이유는 요구사항 목록/상세, 브랜드 설정 등 1차가 아닌 사용자도 이 API로 담당자 이름을 표시하거나 팀을 배치하기 때문이다. (2) `select`에 `auth_user_id`를 추가해서 `/admin/brands` 화면이 "계정 생성" 버튼을 보여줄지 "비밀번호 재설정" 버튼을 보여줄지 판단할 수 있게 했다. (3) POST(팀원 신규 등록)는 여전히 `requireGlobalAdmin()`으로 전체관리자만 가능하고, 더 이상 body의 `memberId`를 읽지 않는다.
 
 - [ ] **Step 2: 린트 확인 + 커밋**
 
