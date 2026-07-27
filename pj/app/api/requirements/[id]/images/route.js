@@ -18,13 +18,12 @@ export async function POST(request, { params }) {
   try {
     const { id } = await params;
     const form = await request.formData();
-    const memberId = form.get('memberId');
     const brandId = form.get('brandId');
     const files = form.getAll('files').filter((f) => typeof f === 'object' && f.size !== undefined);
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
     if (files.length === 0) throw new ApiError(400, '업로드할 이미지가 없습니다.');
 
-    await requireBrandAccess(memberId, brandId, '4차');
+    const { memberId } = await requireBrandAccess(brandId, '4차');
 
     const supabase = getSupabaseAdmin();
     const { data: current, error: curError } = await supabase
