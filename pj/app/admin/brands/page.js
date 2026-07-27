@@ -6,6 +6,7 @@ import { useIdentity } from '@/components/IdentityProvider';
 import { isGlobalAdmin } from '@/lib/tiers';
 import { BrandFormDialog } from '@/components/BrandFormDialog';
 import { TeamMemberFormDialog } from '@/components/TeamMemberFormDialog';
+import { AccountCredentialDialog } from '@/components/AccountCredentialDialog';
 
 export default function AdminBrandsPage() {
   const { identity } = useIdentity();
@@ -20,6 +21,7 @@ export default function AdminBrandsPage() {
   const [brandDialogOpen, setBrandDialogOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState(null);
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+  const [accountDialogTarget, setAccountDialogTarget] = useState(null);
 
   useEffect(() => {
     if (!globalAdmin) router.replace('/requirements');
@@ -217,6 +219,13 @@ export default function AdminBrandsPage() {
                 <td className="py-2 text-right">
                   <button
                     type="button"
+                    onClick={() => setAccountDialogTarget(m)}
+                    className="mr-3 text-indigo-600 hover:underline"
+                  >
+                    {m.auth_user_id ? '비밀번호 재설정' : '계정 생성'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => toggleGlobalAdmin(m)}
                     className="mr-3 text-indigo-600 hover:underline"
                   >
@@ -245,6 +254,14 @@ export default function AdminBrandsPage() {
         onOpenChange={setMemberDialogOpen}
         identity={identity}
         onCreated={refresh}
+      />
+      <AccountCredentialDialog
+        open={Boolean(accountDialogTarget)}
+        onOpenChange={(v) => {
+          if (!v) setAccountDialogTarget(null);
+        }}
+        member={accountDialogTarget}
+        onSaved={refresh}
       />
     </div>
   );
