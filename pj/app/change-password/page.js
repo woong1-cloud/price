@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabaseBrowser';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,14 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -34,11 +42,13 @@ export default function ChangePasswordPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '처리 중 오류가 발생했습니다.');
 
+      if (!mountedRef.current) return;
       router.push('/login');
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err.message);
     } finally {
-      setSubmitting(false);
+      if (mountedRef.current) setSubmitting(false);
     }
   }
 
