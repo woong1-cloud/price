@@ -69,7 +69,14 @@ export function AccountCredentialDialog({ open, onOpenChange, member, onSaved })
           {mode === 'create' && (
             <div className="flex flex-col gap-1">
               <Label htmlFor="account-email">이메일</Label>
-              <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input
+                id="account-email"
+                type="email"
+                autoComplete="off"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
           )}
           <div className="flex flex-col gap-1">
@@ -77,6 +84,7 @@ export function AccountCredentialDialog({ open, onOpenChange, member, onSaved })
             <Input
               id="account-password"
               type="text"
+              autoComplete="off"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={8}
