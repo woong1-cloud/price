@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabaseBrowser';
 import { saveIdentity } from '@/lib/identity';
@@ -25,6 +25,14 @@ export default function LoginPage() {
   const [me, setMe] = useState(null);
   const [brands, setBrands] = useState([]);
   const [brandId, setBrandId] = useState('');
+  const mountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +64,7 @@ export default function LoginPage() {
       const brandsRes = await fetch('/api/my-brands');
       const brandsData = await brandsRes.json();
       if (!brandsRes.ok) throw new Error(brandsData.error ?? '브랜드 목록을 불러오지 못했습니다.');
+      if (!mountedRef.current) return;
 
       const list = brandsData.brands ?? [];
       if (list.length === 0) {
@@ -71,12 +80,14 @@ export default function LoginPage() {
       setBrands(list);
       setStep('brand');
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err.message);
       setStep('credentials');
     }
   }
 
   function enterBrand(meData, brand) {
+    if (!mountedRef.current) return;
     saveIdentity({
       memberId: meData.memberId,
       name: meData.name,
@@ -85,6 +96,14 @@ export default function LoginPage() {
       tier: brand.tier,
     });
     router.push('/requirements');
+  }
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    if (!mountedRef.current) return;
+    setMe(null);
+    setStep('credentials');
   }
 
   async function handleCredentialsSubmit(event) {
@@ -124,6 +143,13 @@ export default function LoginPage() {
       <main className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6">
         <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
           <p className="text-sm text-slate-600">아직 배치된 브랜드가 없습니다. 관리자에게 문의하세요.</p>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="mt-4 text-sm text-slate-500 underline hover:text-slate-700"
+          >
+            로그아웃
+          </button>
         </div>
       </main>
     );
