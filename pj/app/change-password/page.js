@@ -14,12 +14,12 @@ export default function ChangePasswordPage() {
   const [submitting, setSubmitting] = useState(false);
   const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function handleSubmit(event) {
     event.preventDefault();
