@@ -1,6 +1,6 @@
 -- Supabase SQL Editor에 붙여넣어 실행한다. (0001_init.sql ~ 0004_permission_redesign.sql 실행 이후)
 
-alter table team_members add column auth_user_id uuid references auth.users(id);
+alter table team_members add column auth_user_id uuid unique references auth.users(id) on delete set null;
 alter table team_members add column must_change_password boolean not null default true;
 
 -- 최초 부트스트랩(수동, 1회만):
