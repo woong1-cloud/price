@@ -7,10 +7,9 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { memberId, name, code, workflowTemplate, isActive } = body;
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
+    const { name, code, workflowTemplate, isActive } = body;
 
-    await requireGlobalAdmin(memberId);
+    await requireGlobalAdmin();
 
     const updates = {};
     if (name !== undefined) {

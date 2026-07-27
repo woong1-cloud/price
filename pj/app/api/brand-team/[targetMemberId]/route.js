@@ -10,8 +10,8 @@ export async function PATCH(request, { params }) {
   try {
     const { targetMemberId } = await params;
     const body = await request.json();
-    const { memberId, brandId, tier, subRole } = body;
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    const { brandId, tier, subRole } = body;
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
     if (tier !== undefined && !['2차', '3차'].includes(tier)) {
       throw new ApiError(400, '유효하지 않은 tier입니다.');
     }
@@ -19,7 +19,7 @@ export async function PATCH(request, { params }) {
       throw new ApiError(400, '유효하지 않은 역할입니다.');
     }
 
-    await requireBrandAccess(memberId, brandId, '2차');
+    await requireBrandAccess(brandId, '2차');
 
     const supabase = getSupabaseAdmin();
 
@@ -58,11 +58,10 @@ export async function DELETE(request, { params }) {
   try {
     const { targetMemberId } = await params;
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
     const brandId = searchParams.get('brandId');
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '2차');
+    await requireBrandAccess(brandId, '2차');
 
     const supabase = getSupabaseAdmin();
     const { data: roles, error: rolesError } = await supabase

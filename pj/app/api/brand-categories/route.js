@@ -25,11 +25,11 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { memberId, brandId, categoryName } = body;
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    const { brandId, categoryName } = body;
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
     if (!categoryName || !categoryName.trim()) throw new ApiError(400, '카테고리 이름은 필수입니다.');
 
-    await requireBrandAccess(memberId, brandId, '2차');
+    await requireBrandAccess(brandId, '2차');
 
     const supabase = getSupabaseAdmin();
     const { data: last, error: lastError } = await supabase

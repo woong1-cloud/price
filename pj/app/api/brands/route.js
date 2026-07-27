@@ -6,10 +6,7 @@ import { errorResponse, ApiError } from '@/lib/apiError';
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
-
-    await requireGlobalAdmin(memberId);
+    await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
@@ -26,13 +23,12 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { memberId, name, code, workflowTemplate, adminMemberId } = body;
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
+    const { name, code, workflowTemplate, adminMemberId } = body;
     if (!name || !name.trim()) throw new ApiError(400, '이름은 필수입니다.');
     if (!code || !code.trim()) throw new ApiError(400, '코드는 필수입니다.');
     if (!adminMemberId) throw new ApiError(400, '초기 2차 관리자를 선택해주세요.');
 
-    await requireGlobalAdmin(memberId);
+    const { memberId } = await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.rpc('create_brand_with_admin', {

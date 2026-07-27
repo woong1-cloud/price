@@ -7,10 +7,9 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { memberId, name, isActive, isGlobalAdmin } = body;
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
+    const { name, isActive, isGlobalAdmin } = body;
 
-    await requireGlobalAdmin(memberId);
+    await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();
 
