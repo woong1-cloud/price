@@ -200,11 +200,25 @@ export default function LoginPage() {
         <form onSubmit={handleCredentialsSubmit} className="mt-4 flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <Label htmlFor="email">이메일</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="password">비밀번호</Label>
-            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
           </div>
           <button
             type="submit"
