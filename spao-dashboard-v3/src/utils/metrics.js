@@ -1,5 +1,5 @@
 import { parseStyleCode, validateCodeCoverage } from './styleCodeParser'
-import { getCategory, getIP } from './categorize'
+import { getCategory, getIP, extractCollabIP } from './categorize'
 
 // ─── 포맷 헬퍼 ───────────────────────────────────────────────────────────────
 export const fmt억 = v => (Number(v) / 1e8).toFixed(2) + '억'
@@ -12,7 +12,7 @@ export const fmtWoW = v => {
 }
 
 // ─── 기간별 매출분석 집계 ────────────────────────────────────────────────────
-export function computeSalesByDateMetrics(salesByDate) {
+export function computeSalesByDateMetrics(salesByDate, prevSalesByDate = null) {
   if (!salesByDate?.items?.length) return null
 
   const { sigma, items } = salesByDate
@@ -21,6 +21,29 @@ export function computeSalesByDateMetrics(salesByDate) {
   const discountRate  = sigma.orderAmt > 0 ? sigma.discountAmt / sigma.orderAmt * 100 : 0
   const benefitRate   = sigma.orderAmt > 0 ? sigma.totalBenefit / sigma.orderAmt * 100 : 0
   const cancelAmt     = sigma.cancelAmt || 0
+
+  // ── 전주(WoW) 비교: 지난주 기간별 매출분석 시그마 대비 ──
+  // 금액·건수형 지표는 증감률(%), 비율형 지표(취소율/혜택율)는 포인트(%p) 차이로 계산
+  let wow = null
+  if (prevSalesByDate?.items?.length) {
+    const ps = prevSalesByDate.sigma
+    const pCancelRate  = ps.orderCnt > 0 ? (1 - ps.realOrderCnt / ps.orderCnt) * 100 : 0
+    const pAov         = ps.realOrderCnt > 0 ? ps.realAmt / ps.realOrderCnt : 0
+    const pDiscountRate= ps.orderAmt > 0 ? ps.discountAmt / ps.orderAmt * 100 : 0
+    const pBenefitRate = ps.orderAmt > 0 ? ps.totalBenefit / ps.orderAmt * 100 : 0
+    wow = {
+      realAmt:      wowPct(sigma.realAmt, ps.realAmt),
+      buyerCnt:     wowPct(sigma.buyerCnt, ps.buyerCnt),
+      orderCnt:     wowPct(sigma.orderCnt, ps.orderCnt),
+      realOrderCnt: wowPct(sigma.realOrderCnt, ps.realOrderCnt),
+      cancelRate:   cancelRate - pCancelRate,       // %p 차이
+      aov:          wowPct(aov, pAov),
+      discountAmt:  wowPct(sigma.discountAmt, ps.discountAmt),
+      discountRate: discountRate - pDiscountRate,    // %p 차이
+      benefitRate:  benefitRate - pBenefitRate,      // %p 차이
+      period:       prevSalesByDate.period || null,
+    }
+  }
 
   const medias = [...new Set(items.map(i => i.media))].filter(Boolean)
 
@@ -63,6 +86,7 @@ export function computeSalesByDateMetrics(salesByDate) {
 
   return {
     sigma,
+    prevSigma: prevSalesByDate?.items?.length ? prevSalesByDate.sigma : null,
     cancelRate,
     aov,
     discountRate,
@@ -71,12 +95,13 @@ export function computeSalesByDateMetrics(salesByDate) {
     channelStats,
     dailyOrders,
     medias,
+    wow,
     period: `${dates[0]} ~ ${dates[dates.length - 1]}`,
   }
 }
 
-// ─── 검색 실적 집계 ──────────────────────────────────────────────────────────
-export function computeSearchMetrics(searchData) {
+// ─── 검색 실적 집계 (전주 대비 WoW 포함) ─────────────────────────────────────
+export function computeSearchMetrics(searchData, prevSearchData = null) {
   if (!searchData?.items?.length) return null
 
   const { sigma, items } = searchData
@@ -88,6 +113,21 @@ export function computeSearchMetrics(searchData) {
 
   // 검색→구매 전환율
   const searchConvRate = sigma.uv > 0 ? sigma.orderCnt / sigma.uv * 100 : 0
+
+  // ── 전주(WoW) 비교 ──
+  let wow = null
+  if (prevSearchData?.items?.length) {
+    const ps = prevSearchData.sigma
+    const pConvRate = ps.uv > 0 ? ps.orderCnt / ps.uv * 100 : 0
+    wow = {
+      searchVol: wowPct(sigma.searchVol, ps.searchVol),
+      uv:        wowPct(sigma.uv, ps.uv),
+      orderCnt:  wowPct(sigma.orderCnt, ps.orderCnt),
+      orderAmt:  wowPct(sigma.orderAmt, ps.orderAmt),
+      convRate:  searchConvRate - pConvRate,   // %p 차이
+      period:    prevSearchData.period || null,
+    }
+  }
 
   // 키워드별 집계
   const kwMap = {}
@@ -159,6 +199,7 @@ export function computeSearchMetrics(searchData) {
     mediaStats,
     dailySearch,
     totalKeywords: keywords.length,
+    wow,
     period: searchData.period,
   }
 }
@@ -191,12 +232,14 @@ function wowPct(curr, prev) {
   return (curr - prev) / prev * 100
 }
 
-// ─── 방문실적 집계 ───────────────────────────────────────────────────────────
-export function calcVisitMetrics(visit) {
+// ─── 방문실적 집계 (전주 대비 WoW 포함) ──────────────────────────────────────
+export function calcVisitMetrics(visit, prevVisit = null) {
   if (!visit?.items?.length) {
-    return { channelKPIs: [], dailyUV: [] }
+    return { channelKPIs: [], dailyUV: [], totalUV: 0, prevTotalUV: 0, hasPrev: false }
   }
   const items = visit.items
+  const prevItems = prevVisit?.items || []
+  const hasPrev = prevItems.length > 0
   const medias = [...new Set(items.map(i => i.media))].filter(Boolean)
 
   const channelKPIs = medias.map(media => {
@@ -207,6 +250,11 @@ export function calcVisitMetrics(visit) {
     const avgBounce = rows.length > 0
       ? rows.reduce((s, r) => s + r.bounceRate, 0) / rows.length
       : 0
+    const prevRows = prevItems.filter(i => i.media === media)
+    const prevUv   = sumField(prevRows, 'uv')
+    const prevBounce = prevRows.length > 0
+      ? prevRows.reduce((s, r) => s + r.bounceRate, 0) / prevRows.length
+      : 0
     return {
       media,
       uv,
@@ -214,6 +262,8 @@ export function calcVisitMetrics(visit) {
       pv,
       sessionPV: session > 0 ? pv / session : 0,
       avgBounceRate: avgBounce,
+      uvWoW:     hasPrev ? wowPct(uv, prevUv) : null,
+      bounceWoW: hasPrev ? (avgBounce - prevBounce) : null,  // %p 차이
     }
   })
 
@@ -228,7 +278,10 @@ export function calcVisitMetrics(visit) {
     return row
   })
 
-  return { channelKPIs, dailyUV }
+  const totalUV     = sumField(items, 'uv')
+  const prevTotalUV = sumField(prevItems, 'uv')
+
+  return { channelKPIs, dailyUV, totalUV, prevTotalUV, hasPrev }
 }
 
 // ─── 매장 실적 집계 ──────────────────────────────────────────────────────────
@@ -292,6 +345,248 @@ export function calcStoreMetrics(store) {
   return { storeGroupRevenue, pageCVR, exploreArea, purchaseArea, crossData }
 }
 
+// ─── 재입고 알림내역 (품절 수요) 집계 ────────────────────────────────────────
+// restock: parseRestock 결과({items, totalCnt, ...}). prevRestock: 전주 동일.
+// salesItems: 이번주 판매(sales) 아이템 배열 — styleCode 교차로 "잘 팔리는데 품절" 감지.
+export function computeRestockMetrics(restock, prevRestock = null, salesItems = []) {
+  if (!restock?.items?.length) return null
+
+  // ── 상품 단위 롤업 (단품 → 상품) ──
+  const roll = (items) => {
+    const map = new Map()
+    for (const it of items) {
+      const key = it.productNo || it.name
+      let r = map.get(key)
+      if (!r) {
+        r = { productNo: it.productNo, name: it.name, styleCode: it.styleCode, cnt: 0, skuCount: 0, sizes: {}, skus: [] }
+        map.set(key, r)
+      }
+      r.cnt += it.cnt
+      r.skuCount += 1
+      if (it.size) r.sizes[it.size] = (r.sizes[it.size] || 0) + it.cnt
+      // 단품(SKU) 원본 보존 — 펼침 상세 + 내보내기(취합)용
+      r.skus.push({
+        optionNo: it.optionNo, optionName: it.optionName,
+        color: it.color, size: it.size, cnt: it.cnt,
+      })
+    }
+    return map
+  }
+
+  const curMap  = roll(restock.items)
+  const prevMap = prevRestock?.items?.length ? roll(prevRestock.items) : null
+  const hasPrev = !!prevMap
+
+  // 단품(SKU) 단위 전주 대기건수 — 단품번호(optionNo)로 매칭.
+  // 같은 단품번호가 다른 상품에서 재사용되는 걸 막기 위해 "상품키|단품번호" 로 키를 만든다.
+  const prevSkuMap = new Map()
+  if (prevRestock?.items?.length) {
+    for (const it of prevRestock.items) {
+      const productKey = it.productNo || it.name
+      if (it.optionNo) prevSkuMap.set(`${productKey}|${it.optionNo}`, it.cnt)
+    }
+  }
+
+  // 판매 styleCode별 실주문금액·수량 → 단가(realAmt/qty) 산출.
+  //  - salesAmt: 잘 팔리는데 품절 교차 하이라이트용
+  //  - unitPrice: 재입고 예상매출 추정의 단가 근거 (실현 순단가)
+  const salesByCode = new Map()
+  let totAmt = 0, totQty = 0
+  for (const s of (salesItems || [])) {
+    if (!s.styleCode) continue
+    const e = salesByCode.get(s.styleCode) || { amt: 0, qty: 0 }
+    e.amt += (s.realAmt || 0)
+    e.qty += (s.qty || 0)
+    salesByCode.set(s.styleCode, e)
+    totAmt += (s.realAmt || 0)
+    totQty += (s.qty || 0)
+  }
+  const overallUnit = totQty > 0 ? totAmt / totQty : 0   // 가격 미보유 상품 폴백 단가
+
+  const products = [...curMap.values()].map(r => {
+    const parsed = parseStyleCode(r.styleCode)
+    const productKey = r.productNo || r.name
+    const prevCnt = prevMap?.get(productKey)?.cnt ?? null
+    const sc = r.styleCode ? salesByCode.get(r.styleCode) : null
+    const salesAmt = sc?.amt || 0
+    const unitPrice = (sc && sc.qty > 0) ? sc.amt / sc.qty : null   // 실판매 단가
+    const estUnit = unitPrice != null ? unitPrice : overallUnit     // 추정에 쓸 단가
+    // 단품(SKU) 단위 전주 대기건수 — 단품번호로 매칭(신규 단품은 null=신규)
+    const skusWithPrev = r.skus.map(s => {
+      const prevSkuCnt = s.optionNo ? (prevSkuMap.get(`${productKey}|${s.optionNo}`) ?? null) : null
+      return { ...s, prevCnt: hasPrev ? prevSkuCnt : null }
+    })
+    return {
+      ...r,
+      skus: skusWithPrev,
+      itemName: parsed.itemName || '',
+      gender:   parsed.gender || '',
+      isCollab: parsed.gender === '콜라보',   // 성별코드 U = 캐릭터/브랜드 콜라보
+      ip:       parsed.gender === '콜라보' ? extractCollabIP(r.name) : null,
+      year:     parsed.yearCode || '',
+      isNew:    parsed.isNew || false,
+      prevCnt,
+      wow:      hasPrev ? wowPct(r.cnt, prevCnt) : null,
+      isNewDemand: hasPrev && (prevCnt === null || prevCnt === 0),
+      salesAmt,                 // 이 상품의 이번주 실주문금액(0이면 판매 데이터에 없음)
+      hot:      salesAmt > 0,   // 잘 팔리는데 품절수요까지 = 최우선 리오더
+      unitPrice,                // 실판매 단가(null=판매 이력 없음)
+      hasPrice: unitPrice != null,
+      estUnit,                  // 추정 단가(실단가 or 전체평균 폴백)
+      estBase:  r.cnt * estUnit, // 전환율 적용 전 기준액 (UI에서 ×가정전환율)
+    }
+  }).sort((a, b) => b.cnt - a.cnt)
+
+  // ── 사이즈 분포 (전체) ──
+  const sizeMap = {}
+  for (const it of restock.items) {
+    if (it.size) sizeMap[it.size] = (sizeMap[it.size] || 0) + it.cnt
+  }
+  const topSizes = Object.entries(sizeMap)
+    .map(([size, cnt]) => ({ size, cnt }))
+    .sort((a, b) => b.cnt - a.cnt)
+
+  const crossHot = products.filter(p => p.hot).slice(0, 10)
+
+  const prevTotalCnt = prevRestock?.totalCnt ?? null
+
+  // ── 콜라보 vs 어패럴(비콜라보) 분류 합계 (두 그룹 합 = 전체) ──
+  const bucket = () => ({ cnt: 0, prevCnt: 0, productCount: 0, estBase: 0 })
+  const buckets = { collab: bucket(), apparel: bucket() }
+  for (const p of products) {
+    const b = buckets[p.isCollab ? 'collab' : 'apparel']
+    b.cnt += p.cnt
+    b.prevCnt += (p.prevCnt || 0)
+    b.productCount += 1
+    b.estBase += p.estBase
+  }
+  const classSummary = {
+    collab:  { cnt: buckets.collab.cnt,  productCount: buckets.collab.productCount,  wow: hasPrev ? wowPct(buckets.collab.cnt,  buckets.collab.prevCnt)  : null, estBase: buckets.collab.estBase },
+    apparel: { cnt: buckets.apparel.cnt, productCount: buckets.apparel.productCount, wow: hasPrev ? wowPct(buckets.apparel.cnt, buckets.apparel.prevCnt) : null, estBase: buckets.apparel.estBase },
+  }
+
+  // ── 콜라보 IP별 집계 (인기도 가늠 + IP 드릴다운) ──
+  const ipMap = new Map()
+  for (const p of products) {
+    if (!p.isCollab) continue
+    const e = ipMap.get(p.ip) || { ip: p.ip, cnt: 0, prevCnt: 0, productCount: 0 }
+    e.cnt += p.cnt
+    e.prevCnt += (p.prevCnt || 0)
+    e.productCount += 1
+    ipMap.set(p.ip, e)
+  }
+  const ipSummary = [...ipMap.values()]
+    .map(e => ({ ip: e.ip, cnt: e.cnt, productCount: e.productCount, wow: hasPrev ? wowPct(e.cnt, e.prevCnt) : null }))
+    .sort((a, b) => b.cnt - a.cnt)
+
+  // ── 가격 커버리지 (예상매출 신뢰도) ──
+  const pricedCnt = products.reduce((s, p) => s + (p.hasPrice ? p.cnt : 0), 0)
+  const estBaseAll = products.reduce((s, p) => s + p.estBase, 0)
+  const priceCoverage = {
+    pricedProducts: products.filter(p => p.hasPrice).length,
+    totalProducts:  products.length,
+    pricedCntPct:   restock.totalCnt > 0 ? pricedCnt / restock.totalCnt * 100 : 0, // 대기건수 기준 가격보유 비율
+    overallUnit,
+  }
+
+  return {
+    products,
+    crossHot,
+    topSizes,
+    classSummary,
+    ipSummary,
+    estBaseAll,            // 전환율 적용 전 전체 기준액 (UI: ×가정전환율 = 예상매출)
+    priceCoverage,
+    summary: {
+      totalCnt:     restock.totalCnt,
+      productCount: restock.productCount,
+      skuCount:     restock.skuCount,
+      prevTotalCnt,
+      totalWoW:     hasPrev ? wowPct(restock.totalCnt, prevTotalCnt) : null,
+    },
+    hasPrev,
+  }
+}
+
+// ─── 쿠폰 실적 (프로모션 효율) 집계 ──────────────────────────────────────────
+// coupon: parseCoupon 결과({items, sigma}). prevCoupon: 전주 동일.
+export function computeCouponMetrics(coupon, prevCoupon = null) {
+  if (!coupon?.items?.length) return null
+  const items = coupon.items
+
+  const sum = (arr, f) => arr.reduce((s, r) => s + (r[f] || 0), 0)
+  const agg = (arr) => ({
+    cnt:        arr.length,
+    issued:     sum(arr, 'issued'),
+    used:       sum(arr, 'used'),
+    realAmt:    sum(arr, 'realAmt'),
+    discount:   sum(arr, 'discountAmt'),
+  })
+
+  const total = agg(items)
+  const usageRate = total.issued > 0 ? total.used / total.issued * 100 : 0
+  const efficiency = total.discount > 0 ? total.realAmt / total.discount : 0  // 명목 효율(증분 아님)
+
+  // 부담 주체 분할
+  const burden = {
+    MD:      sum(items, 'burdenMD'),
+    마케팅:  sum(items, 'burdenMktg'),
+    지점:    sum(items, 'burdenStore'),
+    업체:    sum(items, 'burdenVendor'),
+    CS:      sum(items, 'burdenCS'),
+    멤버스:  sum(items, 'burdenMembers'),
+    기타:    sum(items, 'burdenEtc'),
+  }
+  const burdenList = Object.entries(burden)
+    .map(([name, amt]) => ({ name, amt }))
+    .filter(b => b.amt > 0)
+    .sort((a, b) => b.amt - a.amt)
+
+  // 프로모션종류그룹별 (장바구니=온라인 / 오프라인주문 등)
+  const groupMap = {}
+  for (const i of items) {
+    const k = i.promoGroup || '(미분류)'
+    if (!groupMap[k]) groupMap[k] = []
+    groupMap[k].push(i)
+  }
+  const byGroup = Object.entries(groupMap)
+    .map(([group, arr]) => ({ group, ...agg(arr) }))
+    .sort((a, b) => b.realAmt - a.realAmt)
+
+  // 프로모션별 롤업 (같은 프로모션명 합산)
+  const promoMap = new Map()
+  for (const i of items) {
+    const key = i.promoName
+    let r = promoMap.get(key)
+    if (!r) { r = { promoName: i.promoName, promoGroup: i.promoGroup, issued: 0, used: 0, realAmt: 0, discount: 0 }; promoMap.set(key, r) }
+    r.issued += i.issued; r.used += i.used; r.realAmt += i.realAmt; r.discount += i.discountAmt
+  }
+  const promos = [...promoMap.values()]
+    .map(p => ({
+      ...p,
+      efficiency: p.discount > 0 ? p.realAmt / p.discount : 0,
+      usageRate:  p.issued > 0 ? p.used / p.issued * 100 : 0,
+    }))
+    .sort((a, b) => b.realAmt - a.realAmt)
+
+  // 전주 대비(WoW)
+  const hasPrev = !!prevCoupon?.items?.length
+  const prev = hasPrev ? agg(prevCoupon.items) : null
+  const wow = hasPrev ? {
+    realAmt:  wowPct(total.realAmt, prev.realAmt),
+    discount: wowPct(total.discount, prev.discount),
+    used:     wowPct(total.used, prev.used),
+  } : null
+
+  return {
+    summary: { ...total, usageRate, efficiency },
+    burden, burdenList,
+    byGroup, promos,
+    wow, hasPrev,
+    period: coupon.period || '',
+  }
+}
+
 // ─── 메인 파생 계산 ──────────────────────────────────────────────────────────
 export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, store = null }) {
   // V3: thisWeek/lastWeek 슬롯 직접 전달 (2주 데이터 아키텍처)
@@ -301,6 +596,10 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
   const customer = thisWeek?.customer || null
   if (!visit) visit = thisWeek?.visit || null
   if (!store) store = thisWeek?.store || null
+  const restock     = thisWeek?.restock || null
+  const prevRestock = lastWeek?.restock || null
+  const coupon      = thisWeek?.coupon || null
+  const prevCoupon  = lastWeek?.coupon || null
 
   // ── 1. WoW 분리 ──
   const cartSplit = {
@@ -391,14 +690,24 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     },
   ]
 
-  // ── 4. 채널별 실주문금액 ──
+  // ── 4. 채널별 실주문금액 (전주 대비 WoW 포함) ──
   const channelMap = {}
   for (const i of salesSplit.thisWeek) {
     if (!channelMap[i.media]) channelMap[i.media] = 0
     channelMap[i.media] += i.realAmt
   }
+  const channelMapPrev = {}
+  for (const i of salesSplit.lastWeek) {
+    if (!channelMapPrev[i.media]) channelMapPrev[i.media] = 0
+    channelMapPrev[i.media] += i.realAmt
+  }
   const channelData = Object.entries(channelMap)
-    .map(([name, value]) => ({ name, value }))
+    .map(([name, value]) => ({
+      name, value,
+      realAmt: value,
+      prevValue: (channelMapPrev[name] !== undefined) ? channelMapPrev[name] : null,
+      wow: hasWoW ? wowPct(value, channelMapPrev[name]) : null,
+    }))
     .sort((a, b) => b.value - a.value)
 
   // ── 5. 장바구니 퍼널 ──
@@ -433,12 +742,14 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     cartCnt: cartThisSigma.cartCnt || thisCartCnt,
     orderCnt: cartThisSigma.orderCnt || thisOrderCnt,
     realAmt: cartThisSigma.realAmt || thisRevenue,
+    prevCartCnt: hasWoW ? lastCartCnt : null,
+    prevOrderCnt: hasWoW ? lastOrderCnt : null,
     cartConvRate,
     memberPct,
     nonMemberPct,
   }
 
-  // ── 6. 고객 세그먼트 ──
+  // ── 6. 고객 세그먼트 (전주 대비 WoW 포함) ──
   const genderMap = {}
   for (const i of custSplit.thisWeek) {
     const g = i.gender || '기타'
@@ -446,11 +757,18 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     genderMap[g].orderCnt += i.orderCnt
     genderMap[g].realAmt  += i.realAmt
   }
+  const genderMapPrev = {}
+  for (const i of custSplit.lastWeek) {
+    const g = i.gender || '기타'
+    if (!genderMapPrev[g]) genderMapPrev[g] = 0
+    genderMapPrev[g] += i.realAmt
+  }
   const totalGenderAmt = Object.values(genderMap).reduce((s, v) => s + v.realAmt, 0) || 1
   const genderData = Object.entries(genderMap).map(([name, d]) => ({
     name,
     value: d.realAmt,
     pct: d.realAmt / totalGenderAmt * 100,
+    wow: hasWoW ? wowPct(d.realAmt, genderMapPrev[name]) : null,
   }))
 
   // 성별×연령 (여성/남성)
@@ -460,15 +778,21 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     return s
   }
   function buildAgeData(genderLabel) {
-    const ageMap = {}
+    const ageMap = {}, agePrevMap = {}
     for (const i of custSplit.thisWeek) {
       if (!i.gender?.includes(genderLabel)) continue
       const age = cleanAge(i.ageGroup)
       if (!ageMap[age]) ageMap[age] = 0
       ageMap[age] += i.realAmt
     }
+    for (const i of custSplit.lastWeek) {
+      if (!i.gender?.includes(genderLabel)) continue
+      const age = cleanAge(i.ageGroup)
+      if (!agePrevMap[age]) agePrevMap[age] = 0
+      agePrevMap[age] += i.realAmt
+    }
     return Object.entries(ageMap)
-      .map(([age, realAmt]) => ({ age, realAmt }))
+      .map(([age, realAmt]) => ({ age, realAmt, wow: hasWoW ? wowPct(realAmt, agePrevMap[age]) : null }))
       .sort((a, b) => {
         if (a.age === '연령미상') return 1
         if (b.age === '연령미상') return -1
@@ -478,8 +802,9 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
   const femaleAge = buildAgeData('여')
   const maleAge   = buildAgeData('남')
 
-  // ── 7. 상품 실적 Top 15 ──
-  function topBy(items, field, limit = 15) {
+  // ── 7. 상품 실적 Top 50 (전주 대비 WoW 포함) ──
+  // limit 50까지 계산해서 derived 에 담고, UI(ProductTable)에서 20개만 노출 후 펼치기
+  function topBy(items, field, prevItems = [], limit = 50) {
     const map = {}
     for (const i of items) {
       const key = i.styleCode || i.name
@@ -487,12 +812,31 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
       if (!map[key]) map[key] = { styleCode: i.styleCode, name: i.name, [field]: 0 }
       map[key][field] += Number(i[field]) || 0
     }
-    return Object.values(map).sort((a, b) => b[field] - a[field]).slice(0, limit).map((d, idx) => ({ ...d, rank: idx + 1 }))
+    // 전주 동일 키(스타일코드/상품명) 합계
+    const prevMap = {}
+    for (const i of prevItems) {
+      const key = i.styleCode || i.name
+      if (!key) continue
+      prevMap[key] = (prevMap[key] || 0) + (Number(i[field]) || 0)
+    }
+    return Object.values(map)
+      .sort((a, b) => b[field] - a[field])
+      .slice(0, limit)
+      .map((d, idx) => {
+        const key = d.styleCode || d.name
+        const prevValue = prevMap[key]
+        return {
+          ...d,
+          rank: idx + 1,
+          prevValue: (prevValue !== undefined) ? prevValue : null,
+          wow: (prevValue && prevValue !== 0) ? (d[field] - prevValue) / prevValue * 100 : null,
+        }
+      })
   }
 
-  const salesTop15 = topBy(salesSplit.thisWeek, 'realAmt')
-  const wishTop15  = topBy(wishSplit.thisWeek, 'wishCnt')
-  const cartTop15  = topBy(cartSplit.thisWeek, 'cartCnt')
+  const salesTop15 = topBy(salesSplit.thisWeek, 'realAmt', salesSplit.lastWeek)
+  const wishTop15  = topBy(wishSplit.thisWeek, 'wishCnt', wishSplit.lastWeek)
+  const cartTop15  = topBy(cartSplit.thisWeek, 'cartCnt', cartSplit.lastWeek)
 
   // PV vs 판매 갭 (PV 높은데 판매 낮은 상품)
   const pvMap = {}
@@ -516,7 +860,7 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     .sort((a, b) => b.gap - a.gap)
     .slice(0, 15)
 
-  // ── 8. 파레토 분석 ──
+  // ── 8. 파레토 분석 (전주 대비 WoW 포함) ──
   const sortedByRev = Object.values(pvMap).filter(p => p.realAmt > 0).sort((a, b) => b.realAmt - a.realAmt)
   const totalRevForPareto = sortedByRev.reduce((s, p) => s + p.realAmt, 0)
   let cumRev80 = 0, pareto80idx = sortedByRev.length
@@ -524,25 +868,53 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     cumRev80 += sortedByRev[i].realAmt
     if (cumRev80 >= totalRevForPareto * 0.8) { pareto80idx = i + 1; break }
   }
+  // 전주 파레토(80% 커버 SKU 수) 및 상품별 전주 매출 맵
+  const prevRevMap = {}
+  for (const i of salesSplit.lastWeek) {
+    const key = i.styleCode || i.name
+    if (!key) continue
+    prevRevMap[key] = (prevRevMap[key] || 0) + (Number(i.realAmt) || 0)
+  }
+  const prevSortedByRev = Object.entries(prevRevMap).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+  const prevTotalRev = prevSortedByRev.reduce((s, [, v]) => s + v, 0)
+  let prevCum = 0, prevCount80 = prevSortedByRev.length
+  for (let i = 0; i < prevSortedByRev.length; i++) {
+    prevCum += prevSortedByRev[i][1]
+    if (prevCum >= prevTotalRev * 0.8) { prevCount80 = i + 1; break }
+  }
   const pareto = {
     count80: pareto80idx,
     total: sortedByRev.length,
     pct80: sortedByRev.length > 0 ? Math.round(pareto80idx / sortedByRev.length * 100) : 0,
-    top10: sortedByRev.slice(0, 10).map((p, i) => ({
-      ...p, rank: i + 1,
-      cumPct: Math.round(sortedByRev.slice(0, i + 1).reduce((s, x) => s + x.realAmt, 0) / (totalRevForPareto || 1) * 100),
-      pct: Math.round(p.realAmt / (totalRevForPareto || 1) * 100),
-    })),
+    count80Wow: (hasWoW && prevSortedByRev.length > 0) ? wowPct(pareto80idx, prevCount80) : null,
+    top10: sortedByRev.slice(0, 10).map((p, i) => {
+      const key = p.styleCode || p.name
+      const prevValue = prevRevMap[key]
+      return {
+        ...p, rank: i + 1,
+        cumPct: Math.round(sortedByRev.slice(0, i + 1).reduce((s, x) => s + x.realAmt, 0) / (totalRevForPareto || 1) * 100),
+        pct: Math.round(p.realAmt / (totalRevForPareto || 1) * 100),
+        wow: (hasWoW && prevValue) ? wowPct(p.realAmt, prevValue) : null,
+      }
+    }),
   }
 
-  // ── 9. 카테고리 ──
+  // ── 9. 카테고리 (전주 대비 WoW 포함) ──
   const catMap = {}
   for (const i of salesSplit.thisWeek) {
     const cat = getCategory(i.name)
     if (!catMap[cat]) catMap[cat] = 0
     catMap[cat] += i.realAmt
   }
-  const catData = Object.entries(catMap).map(([name, realAmt]) => ({ name, realAmt })).sort((a, b) => b.realAmt - a.realAmt)
+  const catMapPrev = {}
+  for (const i of salesSplit.lastWeek) {
+    const cat = getCategory(i.name)
+    if (!catMapPrev[cat]) catMapPrev[cat] = 0
+    catMapPrev[cat] += i.realAmt
+  }
+  const catData = Object.entries(catMap)
+    .map(([name, realAmt]) => ({ name, realAmt, wow: hasWoW ? wowPct(realAmt, catMapPrev[name]) : null }))
+    .sort((a, b) => b.realAmt - a.realAmt)
 
   // ── 신상 vs 이월 비교 ──
   const newVsCarry = (() => {
@@ -553,10 +925,17 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
       if (p.yearCode === 'G') { newAmt += i.realAmt; newCodes.add(i.styleCode) }
       else if (i.styleCode?.length >= 8) { carryAmt += i.realAmt; carryCodes.add(i.styleCode) }
     }
+    // 전주 신상/이월 매출 (WoW)
+    let prevNewAmt = 0, prevCarryAmt = 0
+    for (const i of salesSplit.lastWeek) {
+      const p = parseStyleCode(i.styleCode)
+      if (p.yearCode === 'G') prevNewAmt += i.realAmt
+      else if (i.styleCode?.length >= 8) prevCarryAmt += i.realAmt
+    }
     const total = newAmt + carryAmt || 1
     return [
-      { name: '신상(이번시즌)', realAmt: newAmt, skuCount: newCodes.size, pct: newAmt / total * 100 },
-      { name: '이월(전시즌)',   realAmt: carryAmt, skuCount: carryCodes.size, pct: carryAmt / total * 100 },
+      { name: '신상(이번시즌)', realAmt: newAmt, skuCount: newCodes.size, pct: newAmt / total * 100, wow: hasWoW ? wowPct(newAmt, prevNewAmt) : null },
+      { name: '이월(전시즌)',   realAmt: carryAmt, skuCount: carryCodes.size, pct: carryAmt / total * 100, wow: hasWoW ? wowPct(carryAmt, prevCarryAmt) : null },
     ]
   })()
 
@@ -586,8 +965,15 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     if (!catFunnelMap[cat]) catFunnelMap[cat] = { realAmt: 0, wishCnt: 0, cartCnt: 0 }
     catFunnelMap[cat].cartCnt += i.cartCnt
   }
+  // 전주 카테고리별 실주문금액 (WoW)
+  const catFunnelPrev = {}
+  for (const i of salesSplit.lastWeek) {
+    const cat = getCatSmart(i.name, i.styleCode)
+    if (!catFunnelPrev[cat]) catFunnelPrev[cat] = 0
+    catFunnelPrev[cat] += i.realAmt
+  }
   const catFunnel = Object.entries(catFunnelMap)
-    .map(([name, d]) => ({ name, ...d }))
+    .map(([name, d]) => ({ name, ...d, wow: hasWoW ? wowPct(d.realAmt, catFunnelPrev[name]) : null }))
     .filter(d => d.realAmt > 0 || d.wishCnt > 0)
     .sort((a, b) => b.realAmt - a.realAmt)
     .slice(0, 8)
@@ -612,7 +998,7 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     }))
     .sort((a, b) => b.total - a.total)
 
-  // ── 10. IP 현황 ──
+  // ── 10. IP 현황 (전주 대비 WoW 포함) ──
   const ipMap = {}
   for (const i of salesSplit.thisWeek) {
     const ip = getIP(i.name)
@@ -620,13 +1006,22 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     if (!ipMap[ip]) ipMap[ip] = 0
     ipMap[ip] += i.realAmt
   }
-  const ipData = Object.entries(ipMap).map(([name, realAmt]) => ({ name, realAmt })).sort((a, b) => b.realAmt - a.realAmt)
+  const ipMapPrev = {}
+  for (const i of salesSplit.lastWeek) {
+    const ip = getIP(i.name)
+    if (!ip) continue
+    if (!ipMapPrev[ip]) ipMapPrev[ip] = 0
+    ipMapPrev[ip] += i.realAmt
+  }
+  const ipData = Object.entries(ipMap)
+    .map(([name, realAmt]) => ({ name, realAmt, wow: hasWoW ? wowPct(realAmt, ipMapPrev[name]) : null }))
+    .sort((a, b) => b.realAmt - a.realAmt)
 
   // ── 10. 스타일코드 커버리지 ──
   const { matchedRate, unmatchedCodes } = validateCodeCoverage(salesSplit.thisWeek)
 
   // ── 11. 방문실적 / 매장실적 ──
-  const visitMetrics = visit ? calcVisitMetrics(visit) : null
+  const visitMetrics = visit ? calcVisitMetrics(visit, lastWeek?.visit || null) : null
   const storeMetrics = store ? calcStoreMetrics(store) : null
 
   // ── 11-B. 신규 vs 재구매 고객 분석 ──
@@ -840,17 +1235,77 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     igRaw[itemName][g] = (igRaw[itemName][g] || 0) + i.realAmt
     if (i.styleCode) igSkuSets[itemName].add(i.styleCode)
   }
+  // 전주 아이템별 합계 매출 (WoW)
+  const igPrevTotal = {}
+  for (const i of salesSplit.lastWeek) {
+    const p = parseStyleCode(i.styleCode)
+    const itemName = p.itemName || '기타'
+    igPrevTotal[itemName] = (igPrevTotal[itemName] || 0) + (Number(i.realAmt) || 0)
+  }
   const itemGenderMatrix = Object.entries(igRaw).map(([itemName, gMap]) => {
     const row = { itemName, skuCount: igSkuSets[itemName].size }
     let total = 0
     for (const g of [...ITEM_GENDER_COLS, '기타']) { row[g] = gMap[g] || 0; total += row[g] }
     row.total = total
+    row.totalWow = hasWoW ? wowPct(total, igPrevTotal[itemName]) : null
     return row
   }).sort((a, b) => {
     if (a.itemName === '기타') return 1
     if (b.itemName === '기타') return -1
     return b.total - a.total
   })
+
+  // 복종(성별) 열별 전주 대비 — 전체 합계 행에 표시
+  const IG_ALL_COLS = [...ITEM_GENDER_COLS, '기타']
+  const igColThis = {}, igColPrev = {}
+  for (const g of IG_ALL_COLS) { igColThis[g] = 0; igColPrev[g] = 0 }
+  for (const itemName in igRaw) {
+    for (const g of IG_ALL_COLS) igColThis[g] += igRaw[itemName][g] || 0
+  }
+  for (const i of salesSplit.lastWeek) {
+    const p = parseStyleCode(i.styleCode)
+    const g = ITEM_GENDER_COLS.includes(p.gender) ? p.gender : '기타'
+    igColPrev[g] += Number(i.realAmt) || 0
+  }
+  const itemGenderColWow = {}
+  for (const g of IG_ALL_COLS) itemGenderColWow[g] = hasWoW ? wowPct(igColThis[g], igColPrev[g]) : null
+
+  // ── 재입고 알림내역 (품절 수요) ──
+  const restockMetrics = computeRestockMetrics(restock, prevRestock, salesSplit.thisWeek)
+  if (restockMetrics?.products?.length) {
+    const top = restockMetrics.products[0]
+    // 1순위 재입고 상품 (대기 수요 최다)
+    insights.push({
+      severity: top.cnt >= 100 ? 'danger' : 'warning',
+      title: `재입고 1순위: ${top.name.replace(/_[A-Za-z0-9]+\s*$/, '')}`,
+      desc: `재입고 알림 ${fmtComma(top.cnt)}명 대기 (단품 ${top.skuCount}개)${top.hot ? ' · 판매 중인 상품인데 품절 — 매출 직접 손실 중' : ''}. 전체 ${fmtComma(restockMetrics.summary.totalCnt)}건 중 ${(top.cnt / restockMetrics.summary.totalCnt * 100).toFixed(0)}% 집중.`,
+      action: `'${top.name.replace(/_[A-Za-z0-9]+\s*$/, '')}' 재입고/리오더를 최우선 검토하세요. 사이즈는 ${Object.entries(top.sizes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s, c]) => `${s}(${c})`).join(' · ')} 순으로 수요가 높습니다.`,
+    })
+    // "잘 팔리는데 품절" 교차 신호
+    if (restockMetrics.crossHot.length > 0) {
+      const names = restockMetrics.crossHot.slice(0, 3).map(p => p.name.replace(/_[A-Za-z0-9]+\s*$/, '')).join(', ')
+      insights.push({
+        severity: 'danger',
+        title: `잘 팔리는데 품절 ${restockMetrics.crossHot.length}건 — 즉시 리오더`,
+        desc: `이번 주 판매가 발생 중인데 재입고 대기까지 걸린 상품 ${restockMetrics.crossHot.length}개. 재고만 있으면 바로 더 팔 수 있는 명백한 기회손실입니다. (예: ${names})`,
+        action: `해당 상품들을 우선 리오더 리스트에 올리세요. L2 상품분석 '재입고 대기 수요' 섹션에서 전체 목록과 사이즈별 수요를 확인할 수 있습니다.`,
+      })
+    }
+  }
+
+  // ── 쿠폰 실적 (프로모션 효율) ──
+  const couponMetrics = computeCouponMetrics(coupon, prevCoupon)
+  if (couponMetrics) {
+    const lowUse = couponMetrics.promos.filter(p => p.discount > 1_000_000 && p.realAmt < p.discount * 2)
+    if (lowUse.length > 0) {
+      insights.push({
+        severity: 'warning',
+        title: `저효율 쿠폰 ${lowUse.length}건 — 할인 대비 매출 저조`,
+        desc: `할인 100만원 이상 투입했는데 기여 실주문이 할인의 2배 미만인 프로모션이 ${lowUse.length}건입니다. (예: ${lowUse.slice(0, 2).map(p => p.promoName).join(', ')})`,
+        action: `해당 쿠폰의 할인율·대상·노출을 재검토하세요. L1 '쿠폰 효율' 섹션에서 프로모션별 효율을 확인할 수 있습니다.`,
+      })
+    }
+  }
 
   return {
     period, thisP, lastP, hasWoW,
@@ -864,8 +1319,10 @@ export function computeAllDerived({ thisWeek, lastWeek = null, visit = null, sto
     newVsReturn,
     matchedRate, unmatchedCodes,
     visitMetrics, storeMetrics,
+    restockMetrics,
+    couponMetrics,
     insights,
-    itemGenderMatrix,
+    itemGenderMatrix, itemGenderColWow,
   }
 }
 

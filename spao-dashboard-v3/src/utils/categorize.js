@@ -33,12 +33,12 @@ const EXCLUDE_MATERIALS = new Set([
   '수피마코튼', '데일리지', '기능성', '워밍', '유기농', '에코', '홈웨어', '스포츠',
   '2way', '3way', '에어', '실크', '린넨', '데님', '니트', '플리스', '면', '폴리',
   '쿨링', '워터', '메시', '스트레치', '컴포트', '핏', '모달', '소로나', '시어서커',
-  '프렌치테리', '소프트안', '링글프리', '비스코스',
+  '프렌치테리', '소프트안', '링클프리', '비스코스',
   // 상품 라인 / 기능어
   '프리미엄', '에센셜', '시티웨어', '내추럴', '베이직',
   // 기타 비IP 브래킷
   '납곰이', '담곰이', '뭉티즈', '한교동', '미나틴', '팡구', '버터베어',
-  '에어비스코스', '둥과체리', '소프트안', '링글프리',
+  '에어비스코스', '둥과체리', '소프트안', '링클프리',
 ])
 
 // 토큰에 포함되면 제외되는 소재/기능 키워드 (부분 일치)
@@ -88,6 +88,8 @@ const IP_MAP = new Map([
   ['케로로', '케로로'], ['개구리동사케로로', '케로로'],
   // 루니툰즈
   ['트위티', '트위티'], ['tweety', '트위티'],
+  // 루시 (신규 콜라보)
+  ['lucy', 'LUCY'], ['루시', 'LUCY'],
 ])
 
 function isExcluded(token) {
@@ -115,13 +117,28 @@ export function getIP(name) {
   while ((m = re.exec(src)) !== null) tokens.push(m[1].trim())
 
   for (const token of tokens) {
-    if (isExcluded(token)) continue
     const tLower = token.toLowerCase()
+    // 알려진 IP 는 제외 규칙보다 우선 매칭 (LUCY 같은 영문 IP 가 기능성 태그로 오인되어
+    // 걸러지는 것을 방지).
     for (const [key, displayName] of IP_MAP) {
       if (tLower.includes(key)) return displayName
     }
-    // 매핑 없는 경우 → 브래킷 텍스트 그대로 반환 (신규 콜라보 자동 인식)
-    return token
+    if (isExcluded(token)) continue
+    // 엄격 모드: 매핑되지 않은 브래킷은 콜라보로 보지 않는다 (일반 상품 오인 방지)
   }
   return null
+}
+
+// 콜라보 상품의 IP 표시명 추출 (재입고/콜라보 집계 전용).
+// getIP 표준 매핑을 우선 쓰되, 매핑 안 된 콜라보 브래킷(호빵맨·마이페이브아카이브 등)은
+// 첫 유효 브래킷 토큰을 그대로 IP 이름으로 쓴다. 콜라보(styleCode U) 상품에만 적용할 것.
+export function extractCollabIP(name) {
+  const mapped = getIP(name)
+  if (mapped) return mapped
+  const tokens = [...String(name || '').matchAll(/\[([^\]]+)\]/g)].map(m => m[1].trim())
+  for (const t of tokens) {
+    if (isExcluded(t)) continue
+    return t
+  }
+  return '기타 콜라보'
 }

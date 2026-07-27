@@ -10,12 +10,13 @@ import {
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell, LabelList,
 } from 'recharts'
 import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
+import WoWBadge from './common/WoWBadge'
 
 const MEDIA_COLORS = { APP: '#5DCAA5', MOBILE: '#378ADD', PC: '#B4B2A9' }
 const MEDIA_ORDER  = ['MOBILE', 'APP', 'PC']
 
 // ─── 핵심 KPI 타일 ───────────────────────────────────────────────────────────
-function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight }) {
+function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight, wow, wowKind, wowInvert }) {
   return (
     <div style={{
       background: bg || '#fff',
@@ -33,6 +34,11 @@ function KPITile({ label, value, sub, color = '#378ADD', bg, icon, highlight }) 
       <div style={{ fontWeight: 800, fontSize: '1.5rem', color: highlight ? color : '#1A1A1A', lineHeight: 1 }}>
         {value}
       </div>
+      {(wow !== null && wow !== undefined) && (
+        <div style={{ marginTop: 7 }}>
+          <WoWBadge wow={wow} kind={wowKind} invert={wowInvert} suffix="vs 전주" />
+        </div>
+      )}
       {sub && <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>{sub}</div>}
     </div>
   )
@@ -154,49 +160,148 @@ function DailyTrend({ dailyOrders, medias }) {
   )
 }
 
-// ─── 구매 퍼널 (UV 데이터 있을 때 완성) ────────────────────────────────────
+// ─── 유입 → 사이트 전환 (UV 데이터 있을 때 완성) ──────────────────────────
 function PurchaseFunnel({ metrics, visitMetrics, cartSigma }) {
-  const { sigma } = metrics
-  const totalUV    = visitMetrics?.channelKPIs?.reduce((s, k) => s + k.uv, 0) || 0
-  const cartCnt    = cartSigma?.cartCnt || 0
-  const orderCnt   = sigma.orderCnt || 0
+  const { sigma, prevSigma } = metrics
+  const totalUV      = visitMetrics?.totalUV || visitMetrics?.channelKPIs?.reduce((s, k) => s + k.uv, 0) || 0
+  const prevTotalUV  = visitMetrics?.prevTotalUV || 0
+  const cartCnt      = cartSigma?.cartCnt || 0
+  const prevCartCnt  = cartSigma?.prevCartCnt ?? null
+  const orderCnt     = sigma.orderCnt || 0
   const realOrderCnt = sigma.realOrderCnt || 0
+  const prevOrderCnt     = prevSigma?.orderCnt ?? null
+  const prevRealOrderCnt = prevSigma?.realOrderCnt ?? null
+
+  // ── 히어로 지표: 유입(UV) 변화 → 사이트 전환율(실주문÷UV) 변화 ──
+  const uvWoW        = prevTotalUV > 0 ? ((totalUV - prevTotalUV) / prevTotalUV * 100) : null
+  const siteConv     = totalUV > 0 ? (realOrderCnt / totalUV * 100) : null
+  const prevSiteConv = (prevTotalUV > 0 && prevRealOrderCnt !== null)
+    ? (prevRealOrderCnt / prevTotalUV * 100)
+    : null
+  const siteConvWoW  = (siteConv !== null && prevSiteConv !== null) ? (siteConv - prevSiteConv) : null
 
   const steps = [
-    { label: 'UV 방문',       value: totalUV,      unit: '명', color: '#B4B2A9', available: totalUV > 0, icon: '🌐' },
-    { label: '장바구니 담기', value: cartCnt,      unit: '건', color: '#7F77DD', available: cartCnt > 0, icon: '🛍' },
-    { label: '주문 시도',     value: orderCnt,     unit: '건', color: '#EF9F27', available: orderCnt > 0, icon: '📝' },
-    { label: '실주문 완료',   value: realOrderCnt, unit: '건', color: '#5DCAA5', available: realOrderCnt > 0, icon: '✅' },
-    { label: '실주문금액',    value: null,         unit: '',   color: '#378ADD', available: true, icon: '💰', amt: sigma.realAmt },
+    { label: 'UV 방문',       value: totalUV,      prev: prevTotalUV || null,    unit: '명', color: '#B4B2A9', available: totalUV > 0, icon: '🌐' },
+    { label: '장바구니 담기', value: cartCnt,      prev: prevCartCnt,            unit: '건', color: '#7F77DD', available: cartCnt > 0, icon: '🛍' },
+    { label: '주문 시도',     value: orderCnt,     prev: prevOrderCnt,           unit: '건', color: '#EF9F27', available: orderCnt > 0, icon: '📝' },
+    { label: '실주문 완료',   value: realOrderCnt, prev: prevRealOrderCnt,       unit: '건', color: '#5DCAA5', available: realOrderCnt > 0, icon: '✅' },
+    { label: '실주문금액',    value: null,         prev: null,                   unit: '',   color: '#378ADD', available: true, icon: '💰', amt: sigma.realAmt },
   ]
 
-  const funnelData = steps.filter(s => s.available || s.label === '장바구니 담기')
-
-  const getConvRate = (prev, curr) => {
+  const convPct = (prev, curr) => {
     if (!prev?.value || !curr?.value) return null
-    return (curr.value / prev.value * 100).toFixed(1)
+    return (curr.value / prev.value * 100)
+  }
+  // 단계 전환율의 전주 대비 %p 변화 (양쪽 모두 prev 값이 있어야 계산)
+  const convWoW = (prev, curr) => {
+    if (!prev?.value || !curr?.value || !prev?.prev || !curr?.prev) return null
+    const now  = curr.value / prev.value * 100
+    const then = curr.prev / prev.prev * 100
+    return now - then
   }
 
   return (
     <div>
       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6B6B68', marginBottom: 12 }}>
-        📊 구매 전환 퍼널
+        📊 유입 → 사이트 전환
         {totalUV === 0 && <span style={{ color: '#A0A09E', fontWeight: 400, marginLeft: 8 }}>— 방문실적 파일 업로드 시 UV 표시</span>}
         {cartCnt === 0 && <span style={{ color: '#A0A09E', fontWeight: 400, marginLeft: 8 }}>— 장바구니 담기수 확인 필요</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
+
+      {/* ── 히어로: 유입(UV) 변화 → 사이트 전환율 변화 ── */}
+      {siteConv !== null && (
+        <div style={{
+          display: 'flex', alignItems: 'stretch', gap: 14, flexWrap: 'wrap',
+          background: 'linear-gradient(135deg, #EFF6FF 0%, #F0FDF8 100%)',
+          border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px', marginBottom: 16,
+        }}>
+          {/* 유입(UV 방문) */}
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: '#6B6B68', fontWeight: 600, marginBottom: 4 }}>
+              📈 유입 <span style={{ color: '#A0A09E', fontWeight: 400 }}>(UV 방문)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: '1.75rem', color: '#0F766E', lineHeight: 1 }}>
+                {fmtComma(totalUV)}<span style={{ fontSize: '0.875rem', fontWeight: 600 }}>명</span>
+              </span>
+              {uvWoW !== null && <WoWBadge wow={uvWoW} suffix="vs 전주" />}
+            </div>
+            <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>
+              {prevTotalUV > 0 ? <>전주 {fmtComma(prevTotalUV)}명</> : '전주 데이터 없음'}
+            </div>
+          </div>
+
+          {/* 화살표 */}
+          <div style={{ display: 'flex', alignItems: 'center', color: '#93C5FD', fontSize: '1.5rem', padding: '0 2px' }}>→</div>
+
+          {/* 사이트 전환율 */}
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: '#6B6B68', fontWeight: 600, marginBottom: 4 }}>
+              🎯 사이트 전환율 <span style={{ color: '#A0A09E', fontWeight: 400 }}>(UV → 실주문)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: '1.75rem', color: '#1D4ED8', lineHeight: 1 }}>
+                {siteConv.toFixed(2)}%
+              </span>
+              {siteConvWoW !== null && <WoWBadge wow={siteConvWoW} kind="pp" suffix="vs 전주" />}
+            </div>
+            <div style={{ fontSize: '0.6875rem', color: '#A0A09E', marginTop: 5 }}>
+              {fmtComma(realOrderCnt)}건 ÷ UV {fmtComma(totalUV)}명
+              {prevSiteConv !== null && <span> · 전주 {prevSiteConv.toFixed(2)}%</span>}
+            </div>
+          </div>
+
+          {/* 해석 코멘트 — 유입과 전환을 함께 설명 */}
+          {(siteConvWoW !== null || uvWoW !== null) && (() => {
+            const convDown = siteConvWoW !== null && siteConvWoW < 0
+            const tone = convDown ? { c: '#B91C1C', bg: '#FEF2F2', b: '#FECACA' } : { c: '#15803D', bg: '#F0FDF4', b: '#BBF7D0' }
+            const uvPhrase = uvWoW === null ? null
+              : uvWoW >= 0 ? `유입은 전주 대비 ${uvWoW >= 0 ? '+' : ''}${uvWoW.toFixed(1)}% 늘었`
+              : `유입이 전주 대비 ${uvWoW.toFixed(1)}% 줄었`
+            return (
+              <div style={{
+                flex: '1 1 200px', minWidth: 180, fontSize: '0.75rem', lineHeight: 1.6,
+                color: tone.c, background: tone.bg, border: `1px solid ${tone.b}`,
+                borderRadius: 10, padding: '10px 14px',
+                display: 'flex', alignItems: 'center',
+              }}>
+                <span>
+                  {siteConvWoW !== null && (
+                    convDown
+                      ? <><strong>전환율이 {Math.abs(siteConvWoW).toFixed(2)}%p 빠졌습니다.</strong> </>
+                      : <><strong>전환율이 {siteConvWoW.toFixed(2)}%p 올랐습니다.</strong> </>
+                  )}
+                  {uvPhrase && <>{uvPhrase}고, </>}
+                  {convDown
+                    ? '들어온 유입이 구매로 덜 이어졌어요 — 어느 단계에서 새는지 아래 퍼널에서 확인하세요.'
+                    : '유입 대비 구매 효율이 개선됐어요.'}
+                </span>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* ── 단계별 퍼널 (전환율 + 전주 대비 %p) ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
         {steps.map((s, i) => {
           const prevStep = i > 0 ? steps[i - 1] : null
-          const convRate = i > 0 ? getConvRate(prevStep, s) : null
+          const rate = i > 0 ? convPct(prevStep, s) : null
+          const rateWoW = i > 0 ? convWoW(prevStep, s) : null
           return (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              {/* 화살표 + 전환율 */}
+            <div key={s.label} style={{ display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}>
+              {/* 화살표 + 전환율 + WoW %p */}
               {i > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', minWidth: 44 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 6px', minWidth: 52, marginTop: 30 }}>
                   <div style={{ fontSize: '1.125rem', color: '#C8C8C6' }}>›</div>
-                  {convRate && s.available && prevStep?.available && (
+                  {rate !== null && s.available && prevStep?.available && (
                     <div style={{ fontSize: '0.5625rem', fontWeight: 700, color: '#EF9F27', background: '#FFF9F0', borderRadius: 3, padding: '1px 4px', textAlign: 'center' }}>
-                      {convRate}%
+                      {rate.toFixed(1)}%
+                    </div>
+                  )}
+                  {rateWoW !== null && s.available && prevStep?.available && (
+                    <div style={{ marginTop: 3 }}>
+                      <WoWBadge wow={rateWoW} kind="pp" size="xs" />
                     </div>
                   )}
                 </div>
@@ -246,28 +351,31 @@ export default function SalesScoreboard({ salesByDateMetrics, visitMetrics, cart
     )
   }
 
-  const { sigma, cancelRate, aov, discountRate, benefitRate, cancelAmt, channelStats, dailyOrders, medias } = salesByDateMetrics
+  const { sigma, cancelRate, aov, discountRate, benefitRate, cancelAmt, channelStats, dailyOrders, medias, wow } = salesByDateMetrics
+  const w = wow || {}
 
   const kpiTiles = [
-    { label: '실주문금액',  value: fmt억(sigma.realAmt),                    icon: '💰', color: '#378ADD', highlight: true },
-    { label: '주문자수',    value: fmtComma(sigma.buyerCnt) + '명',          icon: '👤', color: '#5DCAA5' },
-    { label: '주문건수',    value: fmtComma(sigma.orderCnt) + '건',          icon: '📋', color: '#7F77DD' },
-    { label: '실주문건수',  value: fmtComma(sigma.realOrderCnt) + '건',      icon: '✅', color: '#5DCAA5' },
+    { label: '실주문금액',  value: fmt억(sigma.realAmt),                    icon: '💰', color: '#378ADD', highlight: true, wow: w.realAmt },
+    { label: '주문자수',    value: fmtComma(sigma.buyerCnt) + '명',          icon: '👤', color: '#5DCAA5', wow: w.buyerCnt },
+    { label: '주문건수',    value: fmtComma(sigma.orderCnt) + '건',          icon: '📋', color: '#7F77DD', wow: w.orderCnt },
+    { label: '실주문건수',  value: fmtComma(sigma.realOrderCnt) + '건',      icon: '✅', color: '#5DCAA5', wow: w.realOrderCnt },
     {
       label: '취소/반품율',
       value: cancelRate.toFixed(1) + '%',
       icon: '↩', color: '#E24B4A',
       sub: `취소금액 ${fmt억(cancelAmt)}`,
       bg: cancelRate > 10 ? '#FEF2F2' : undefined,
+      wow: w.cancelRate, wowKind: 'pp', wowInvert: true,
     },
     {
       label: '건당 평균금액(AOV)',
       value: fmtComma(Math.round(aov)) + '원',
       icon: '🎯', color: '#EF9F27',
       sub: 'PC 최고 · MOBILE 최저',
+      wow: w.aov,
     },
-    { label: '혜택 할인금액', value: fmt억(sigma.discountAmt),               icon: '🏷',  color: '#B45309', sub: `할인율 ${discountRate.toFixed(1)}%` },
-    { label: '혜택 적용율',   value: benefitRate.toFixed(1) + '%',           icon: '🎁', color: '#1A8060', sub: `총혜택 ${fmt억(sigma.totalBenefit)}` },
+    { label: '혜택 할인금액', value: fmt억(sigma.discountAmt),               icon: '🏷',  color: '#B45309', sub: `할인율 ${discountRate.toFixed(1)}%`, wow: w.discountAmt, wowInvert: true },
+    { label: '혜택 적용율',   value: benefitRate.toFixed(1) + '%',           icon: '🎁', color: '#1A8060', sub: `총혜택 ${fmt억(sigma.totalBenefit)}`, wow: w.benefitRate, wowKind: 'pp' },
   ]
 
   return (
@@ -277,7 +385,16 @@ export default function SalesScoreboard({ salesByDateMetrics, visitMetrics, cart
         <span style={{ width: 3, height: 16, background: '#378ADD', borderRadius: 2, display: 'inline-block' }} />
         <span style={{ fontWeight: 700, fontSize: '1rem', color: '#1A1A1A' }}>📈 매출 스코어보드</span>
         <span style={{ fontSize: '0.75rem', color: '#A0A09E', marginLeft: 4 }}>기간별 매출분석 기준</span>
-        <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#EFF6FF', color: '#378ADD', border: '1px solid #BFDBFE', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+        {wow ? (
+          <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#F0FDF8', color: '#1A8060', border: '1px solid #BBF7D0', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+            ● 전주 대비(WoW) 활성{wow.period ? ` · 전주 ${wow.period}` : ''}
+          </span>
+        ) : (
+          <span style={{ marginLeft: 'auto', fontSize: '0.6875rem', background: '#F8F8F7', color: '#A0A09E', border: '1px solid #E8E8E6', borderRadius: 4, padding: '2px 8px', fontWeight: 500 }}>
+            전주 데이터 업로드 시 WoW 표시
+          </span>
+        )}
+        <span style={{ fontSize: '0.6875rem', background: '#EFF6FF', color: '#378ADD', border: '1px solid #BFDBFE', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
           {salesByDateMetrics.period}
         </span>
       </div>

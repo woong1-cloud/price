@@ -468,6 +468,12 @@ export function detectFileKey(headers) {
   const has = (...terms) => terms.every(t => hs.some(h => h.includes(t)))
   const exact = term => hs.some(h => h === term)
 
+  // 0-a. 쿠폰 실적 — '프로모션번호' + '쿠폰발급수' (고유 조합)
+  if ((has('프로모션번호') || has('프로모션명')) && (has('쿠폰발급수') || has('쿠폰순사용수'))) return 'coupon'
+
+  // 0-b. 재입고 알림내역 — '신청상태' + '건수' (다른 파일엔 없는 고유 조합)
+  if (has('신청상태') && (has('단품명') || has('건수'))) return 'restock'
+
   // 1. 검색 실적 — '검색어' + '검색량'
   if (has('검색어') && (has('검색량') || exact('uv'))) return 'search'
 
@@ -581,14 +587,17 @@ export function parseStoreCorner(rows) {
   const dates = items.map(i => i.date).filter(Boolean).sort()
   const period = dates.length ? `${dates[0].slice(5, 10)} ~ ${dates[dates.length-1].slice(5, 10)}` : ''
 
-  // ── 코너 단위 사전 집계 ──────────────────────────────────────────────────────
+  // ── 코너 × 컨텐츠 단위 사전 집계 ──────────────────────────────────────────────
   // 원본은 (날짜 × 컨텐츠) 단위라 행이 수십만 개 → 직렬화 시 localStorage/클라우드
-  // 용량 초과(QuotaExceeded / Failed to fetch). 대시보드는 항상 합산해서만 쓰므로
-  // (매체 × 매장그룹 × 매장상세명 × 코너명) 단위로 미리 합산해 행 수를 줄인다.
-  // 합의 합 = 원본 합 이므로 화면 수치는 동일하다.
+  // 용량 초과(QuotaExceeded / Failed to fetch). 날짜를 걷어내고
+  // (매체 × 매장그룹 × 매장상세명 × 코너명 × 컨텐츠) 단위로 미리 합산한다.
+  // 컨텐츠 식별자를 유지해 L3/L4 기획전 클릭 시 상품별 기여도를 보여줄 수 있게 한다.
+  // 다만 컨텐츠 단위는 행이 다시 늘 수 있으므로, 아래에서 코너별 상위 N개만 남기고
+  // 나머지는 "기타 N개" 한 행으로 접어 용량을 제어한다.
+  const TOP_CONTENT_PER_CORNER = 30
   const aggMap = new Map()
   for (const i of items) {
-    const key = `${i.media}${i.storeGroup}${i.detailName}${i.cornerName}`
+    const key = `${i.media}${i.storeGroup}${i.detailName}${i.cornerName}~${i.contentNo || i.contentName || ''}`
     let r = aggMap.get(key)
     if (!r) {
       r = {
@@ -596,6 +605,8 @@ export function parseStoreCorner(rows) {
         storeGroup:  i.storeGroup,
         detailName:  i.detailName,
         cornerName:  i.cornerName,
+        contentNo:   i.contentNo,
+        contentName: i.contentName,
         impressions: 0,
         clicks:      0,
         buyerCnt:    0,
@@ -610,12 +621,191 @@ export function parseStoreCorner(rows) {
     r.orderCnt    += i.orderCnt
     r.realAmt     += i.realAmt
   }
-  const aggItems = Array.from(aggMap.values())
+  // 코너별로 묶어 상위 N개 컨텐츠만 유지하고 나머지는 "기타 N개" 한 행으로 접는다.
+  // (코너 합 = 상위 + 기타 = 원본 합 이므로 코너/상위 수치는 모두 동일하다.)
+  const cornerMap = new Map()
+  for (const r of aggMap.values()) {
+    const ck = `${r.media}|${r.storeGroup}|${r.detailName}|${r.cornerName}`
+    let arr = cornerMap.get(ck)
+    if (!arr) { arr = []; cornerMap.set(ck, arr) }
+    arr.push(r)
+  }
+
+  const aggItems = []
+  for (const arr of cornerMap.values()) {
+    if (arr.length <= TOP_CONTENT_PER_CORNER) {
+      for (const r of arr) aggItems.push(r)
+      continue
+    }
+    arr.sort((a, b) => b.realAmt - a.realAmt)
+    const top = arr.slice(0, TOP_CONTENT_PER_CORNER)
+    const rest = arr.slice(TOP_CONTENT_PER_CORNER)
+    for (const r of top) aggItems.push(r)
+    const etc = {
+      media:       arr[0].media,
+      storeGroup:  arr[0].storeGroup,
+      detailName:  arr[0].detailName,
+      cornerName:  arr[0].cornerName,
+      contentNo:   '',
+      contentName: `기타 ${rest.length}개`,
+      impressions: 0,
+      clicks:      0,
+      buyerCnt:    0,
+      orderCnt:    0,
+      realAmt:     0,
+    }
+    for (const r of rest) {
+      etc.impressions += r.impressions
+      etc.clicks      += r.clicks
+      etc.buyerCnt    += r.buyerCnt
+      etc.orderCnt    += r.orderCnt
+      etc.realAmt     += r.realAmt
+    }
+    aggItems.push(etc)
+  }
 
   return { sigma: sigmaObj, items: aggItems, period }
 }
 
+// ─── 10. 재입고 알림내역 (품절 수요) ─────────────────────────────────────────
+// 헤더: 상품번호 | 상품명 | 단품번호 | 단품명 | 건수 | 하위업체 | 신청상태
+//   각 행 = 품절 단품에 대한 재입고 알림 신청. 건수 = 알림 신청한 고객 수(수요 신호).
+//   상품명에 스타일코드가 접미사로 붙음 (예: "[COOL] 와이드 코튼 팬츠_SPTCG25G01").
+//   단품명은 "(19)Black/S" 형태 → '/' 앞은 컬러, 뒤는 사이즈.
+export function parseRestock(rows) {
+  if (!rows || rows.length < 2) return { items: [], totalCnt: 0, productCount: 0, skuCount: 0, period: '' }
+
+  const headers = rows[0].map(toStr)
+  const idx = {
+    productNo:   headers.findIndex(h => h.includes('상품번호')),
+    name:        headers.findIndex(h => h.includes('상품명')),
+    optionNo:    headers.findIndex(h => h.includes('단품번호')),
+    optionName:  headers.findIndex(h => h.includes('단품명')),
+    cnt:         headers.findIndex(h => h === '건수' || h.includes('건수')),
+    vendor:      headers.findIndex(h => h.includes('하위업체') || h.includes('업체')),
+    status:      headers.findIndex(h => h.includes('신청상태') || h.includes('상태')),
+  }
+
+  // 상품명 끝의 스타일코드 추출 (마지막 '_' 뒤 영숫자 토큰)
+  const extractStyleCode = (name) => {
+    const m = String(name).match(/_([A-Za-z0-9]+)\s*$/)
+    return m ? m[1] : ''
+  }
+  // 단품명 "(19)Black/S" → { color: '(19)Black', size: 'S' }
+  const splitOption = (opt) => {
+    const s = String(opt).trim()
+    const i = s.lastIndexOf('/')
+    if (i < 0) return { color: s, size: s }
+    return { color: s.slice(0, i).trim(), size: s.slice(i + 1).trim() }
+  }
+
+  const items = rows.slice(1)
+    .filter(r => toStr(r[0]) !== 'Σ' && r.some(c => toStr(c) !== ''))
+    .map(r => {
+      const name = idx.name >= 0 ? toStr(r[idx.name]) : ''
+      const optionName = idx.optionName >= 0 ? toStr(r[idx.optionName]) : ''
+      const { color, size } = splitOption(optionName)
+      return {
+        productNo:  idx.productNo >= 0 ? toStr(r[idx.productNo]) : '',
+        name,
+        styleCode:  extractStyleCode(name),
+        optionNo:   idx.optionNo >= 0 ? toStr(r[idx.optionNo]) : '',
+        optionName,
+        color,
+        size,
+        cnt:        idx.cnt >= 0 ? toNum(r[idx.cnt]) : 0,
+        vendor:     idx.vendor >= 0 ? toStr(r[idx.vendor]) : '',
+        status:     idx.status >= 0 ? toStr(r[idx.status]) : '',
+      }
+    })
+    .filter(i => i.name !== '' && i.cnt > 0)
+
+  const totalCnt = items.reduce((s, i) => s + i.cnt, 0)
+  const productCount = new Set(items.map(i => i.productNo || i.name)).size
+
+  return { items, totalCnt, productCount, skuCount: items.length, period: '' }
+}
+
+// ─── 11. 쿠폰 실적 (프로모션 효율) ────────────────────────────────────────────
+// 헤더: No. | 날짜 | 프로모션번호 | 프로모션명 | 쿠폰구분 | 프로모션종류그룹 | 등록자ID | 승인자ID |
+//   쿠폰발급수 | 쿠폰사용수 | 쿠폰취소수 | … | 쿠폰순사용수 | 주문금액 | 실주문금액 | … |
+//   혜택금액 | 혜택할인금액 | … | 쿠폰할인금액(MD부담) | (마케팅부담) | (지점부담) | (업체부담) | (CS부담) | …
+//   Row[0]=header, Row[1]=Σ sigma, Row[2+]=프로모션별 상세
+export function parseCoupon(rows) {
+  if (!rows || rows.length < 2) return { sigma: {}, items: [], period: '' }
+
+  const headers = rows[0].map(toStr)
+  const find = (...preds) => headers.findIndex(h => preds.every(p => p(h)))
+  const inc = (s) => (h) => h.includes(s)
+  const not = (s) => (h) => !h.includes(s)
+  const idx = {
+    date:       headers.findIndex(h => h.includes('날짜') || h.includes('일자')),
+    promoNo:    headers.findIndex(h => h.includes('프로모션번호')),
+    promoName:  headers.findIndex(h => h.includes('프로모션명')),
+    couponType: headers.findIndex(h => h.includes('쿠폰구분')),
+    promoGroup: headers.findIndex(h => h.includes('프로모션종류그룹') || (h.includes('종류') && h.includes('그룹'))),
+    registrant: headers.findIndex(h => h.includes('등록자')),
+    approver:   headers.findIndex(h => h.includes('승인자')),
+    issued:     headers.findIndex(h => h.includes('쿠폰발급수')),
+    used:       headers.findIndex(h => h.includes('쿠폰순사용수')),
+    usedRaw:    headers.findIndex(h => h === '쿠폰사용수' || (h.includes('쿠폰사용수') && !h.includes('순'))),
+    canceled:   headers.findIndex(h => h.includes('쿠폰취소수')),
+    orderAmt:   find(inc('주문금액'), not('실'), not('분할')),
+    realAmt:    find(inc('실주문금액'), not('분할')),
+    benefit:    headers.findIndex(h => h === '혜택금액' || (h.includes('혜택금액') && !h.includes('할인'))),
+    discountAmt:headers.findIndex(h => h.includes('혜택할인금액')),
+    burdenMD:     find(inc('쿠폰할인금액'), inc('MD부담'),     not('배송비')),
+    burdenMktg:   find(inc('쿠폰할인금액'), inc('마케팅부담'), not('배송비')),
+    burdenStore:  find(inc('쿠폰할인금액'), inc('지점부담'),   not('배송비')),
+    burdenVendor: find(inc('쿠폰할인금액'), inc('업체부담'),   not('배송비')),
+    burdenCS:     find(inc('쿠폰할인금액'), inc('CS부담'),     not('배송비')),
+    burdenMembers:find(inc('쿠폰할인금액'), inc('맥스멤버스'), not('배송비')),
+    burdenEtc:    find(inc('쿠폰할인금액'), inc('기타부담'),   not('배송비')),
+  }
+
+  const sigmaRow = rows.find(r => toStr(r[0]) === 'Σ') || rows[1]
+  const pick = (row, i) => (i >= 0 ? toNum(row[i]) : 0)
+  const sigmaObj = {
+    issued:     pick(sigmaRow, idx.issued),
+    used:       pick(sigmaRow, idx.used),
+    realAmt:    pick(sigmaRow, idx.realAmt),
+    discountAmt:pick(sigmaRow, idx.discountAmt),
+    burdenMD:   pick(sigmaRow, idx.burdenMD),
+    burdenMktg: pick(sigmaRow, idx.burdenMktg),
+  }
+
+  const items = rows.slice(1)
+    .filter(r => toStr(r[0]) !== 'Σ' && r.some(c => toStr(c) !== ''))
+    .map(r => ({
+      date:        idx.date >= 0 ? toStr(r[idx.date]).slice(0, 10) : '',
+      promoNo:     idx.promoNo >= 0 ? toStr(r[idx.promoNo]) : '',
+      promoName:   idx.promoName >= 0 ? toStr(r[idx.promoName]) : '',
+      couponType:  idx.couponType >= 0 ? toStr(r[idx.couponType]) : '',
+      promoGroup:  idx.promoGroup >= 0 ? toStr(r[idx.promoGroup]) : '',
+      registrant:  idx.registrant >= 0 ? toStr(r[idx.registrant]) : '',
+      issued:      pick(r, idx.issued),
+      used:        pick(r, idx.used),
+      canceled:    pick(r, idx.canceled),
+      orderAmt:    pick(r, idx.orderAmt),
+      realAmt:     pick(r, idx.realAmt),
+      discountAmt: pick(r, idx.discountAmt),
+      burdenMD:     pick(r, idx.burdenMD),
+      burdenMktg:   pick(r, idx.burdenMktg),
+      burdenStore:  pick(r, idx.burdenStore),
+      burdenVendor: pick(r, idx.burdenVendor),
+      burdenCS:     pick(r, idx.burdenCS),
+      burdenMembers:pick(r, idx.burdenMembers),
+      burdenEtc:    pick(r, idx.burdenEtc),
+    }))
+    .filter(i => i.promoName !== '')
+
+  const dates = items.map(i => i.date).filter(Boolean).sort()
+  const period = dates.length ? `${dates[0].slice(5)} ~ ${dates[dates.length - 1].slice(5)}` : ''
+
+  return { sigma: sigmaObj, items, period }
+}
+
 // ─── 개발용: 파싱 결과 구조 확인 ──────────────────────────────────────────────
 if (import.meta.env?.DEV) {
-  console.log('[parseExcel] 파서 로드 완료 — parseCart/Wishlist/Sales/Customer/Visit/Store/SalesByDate/Search/StoreCorner')
+  console.log('[parseExcel] 파서 로드 완료 — parseCart/Wishlist/Sales/Customer/Visit/Store/SalesByDate/Search/StoreCorner/Restock/Coupon')
 }
