@@ -28,7 +28,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (!globalAdmin) return undefined;
     let cancelled = false;
-    fetch(`/api/dashboard?memberId=${identity.memberId}&days=${period}`)
+    fetch(`/api/dashboard?days=${period}`)
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
         if (cancelled) return;
@@ -42,7 +42,7 @@ export default function AdminDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [globalAdmin, identity.memberId, period]);
+  }, [globalAdmin, period]);
 
   function goToBrand(brandId) {
     saveIdentity({ ...identity, brandId, tier: '1차' });

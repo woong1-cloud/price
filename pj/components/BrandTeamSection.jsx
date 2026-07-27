@@ -29,7 +29,7 @@ export function BrandTeamSection({ members, teamMembers, identity, onChanged }) 
     const res = await fetch(`/api/brand-team/${targetMemberId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, ...patch }),
+      body: JSON.stringify({ brandId: identity.brandId, ...patch }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -42,7 +42,7 @@ export function BrandTeamSection({ members, teamMembers, identity, onChanged }) 
   async function remove(targetMemberId) {
     setError('');
     const res = await fetch(
-      `/api/brand-team/${targetMemberId}?memberId=${identity.memberId}&brandId=${identity.brandId}`,
+      `/api/brand-team/${targetMemberId}?brandId=${identity.brandId}`,
       { method: 'DELETE' },
     );
     if (!res.ok) {

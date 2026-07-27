@@ -98,9 +98,7 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          memberId: identity.memberId,
           brandId: identity.brandId,
-          requester: identity.memberId,
           title: form.title,
           priority: form.priority || null,
           urgency: form.urgency || null,
@@ -119,7 +117,6 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
       if (imageFiles.length > 0 && created?.id) {
         try {
           const fd = new FormData();
-          fd.append('memberId', identity.memberId);
           fd.append('brandId', identity.brandId);
           imageFiles.forEach((f) => fd.append('files', f));
           const imgRes = await fetch(`/api/requirements/${created.id}/images`, {

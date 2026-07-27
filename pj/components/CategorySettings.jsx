@@ -15,7 +15,7 @@ export function CategorySettings({ categories, identity, onChanged }) {
     const res = await fetch('/api/brand-categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, categoryName: newName }),
+      body: JSON.stringify({ brandId: identity.brandId, categoryName: newName }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -29,7 +29,7 @@ export function CategorySettings({ categories, identity, onChanged }) {
   async function removeCategory(id) {
     setError('');
     const res = await fetch(
-      `/api/brand-categories/${id}?memberId=${identity.memberId}&brandId=${identity.brandId}`,
+      `/api/brand-categories/${id}?brandId=${identity.brandId}`,
       { method: 'DELETE' },
     );
     if (!res.ok) {
@@ -49,12 +49,12 @@ export function CategorySettings({ categories, identity, onChanged }) {
       fetch(`/api/brand-categories/${current.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, sortOrder: other.sort_order }),
+        body: JSON.stringify({ brandId: identity.brandId, sortOrder: other.sort_order }),
       }),
       fetch(`/api/brand-categories/${other.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, sortOrder: current.sort_order }),
+        body: JSON.stringify({ brandId: identity.brandId, sortOrder: current.sort_order }),
       }),
     ]);
     if (!resA.ok || !resB.ok) {

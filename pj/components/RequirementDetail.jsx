@@ -39,7 +39,7 @@ export function RequirementDetail({ id }) {
   }, []);
 
   const load = useCallback(() => {
-    fetch(`/api/requirements/${id}?memberId=${identity.memberId}`)
+    fetch(`/api/requirements/${id}`)
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
         if (!res.ok) throw new Error(d.error ?? '불러오지 못했습니다.');
@@ -47,7 +47,7 @@ export function RequirementDetail({ id }) {
         setLoadError('');
       })
       .catch((e) => setLoadError(e.message));
-  }, [id, identity.memberId]);
+  }, [id]);
 
   useEffect(() => {
     load();
@@ -58,7 +58,7 @@ export function RequirementDetail({ id }) {
     const res = await fetch(`/api/requirements/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, status }),
+      body: JSON.stringify({ brandId: identity.brandId, status }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -74,7 +74,6 @@ export function RequirementDetail({ id }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        memberId: identity.memberId,
         brandId: identity.brandId,
         assignee: assignee === '__none__' ? null : assignee,
       }),
@@ -91,7 +90,6 @@ export function RequirementDetail({ id }) {
     if (newFiles.length === 0) return;
     setActionError('');
     const fd = new FormData();
-    fd.append('memberId', identity.memberId);
     fd.append('brandId', identity.brandId);
     newFiles.forEach((f) => fd.append('files', f));
     const res = await fetch(`/api/requirements/${id}/images`, { method: 'POST', body: fd });
@@ -108,7 +106,7 @@ export function RequirementDetail({ id }) {
     if (!window.confirm('이미지를 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
     setActionError('');
     const res = await fetch(
-      `/api/requirements/${id}/images/${imageId}?memberId=${identity.memberId}&brandId=${identity.brandId}`,
+      `/api/requirements/${id}/images/${imageId}?brandId=${identity.brandId}`,
       { method: 'DELETE' },
     );
     if (!res.ok) {

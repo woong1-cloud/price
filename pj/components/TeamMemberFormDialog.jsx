@@ -36,7 +36,7 @@ export function TeamMemberFormDialog({ open, onOpenChange, identity, onCreated }
       const res = await fetch('/api/team-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: identity.memberId, name }),
+        body: JSON.stringify({ name }),
       });
       const d = await res.json();
       if (!res.ok) {

@@ -23,15 +23,15 @@ export function MergeDialog({ source, onClose, onMerged }) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/requirements/${source.id}/similar?memberId=${identity.memberId}&brandId=${identity.brandId}`)
+    fetch(`/api/requirements/${source.id}/similar?brandId=${identity.brandId}`)
       .then((res) => res.json())
       .then((d) => setCandidates(d.candidates ?? []))
       .catch(() => {});
-    fetch(`/api/requirements?brandId=${identity.brandId}&memberId=${identity.memberId}`)
+    fetch(`/api/requirements?brandId=${identity.brandId}`)
       .then((res) => res.json())
       .then((d) => setAllReqs((d.requirements ?? []).filter((r) => r.id !== source.id && r.status !== '중복')))
       .catch(() => {});
-  }, [source.id, identity.memberId, identity.brandId]);
+  }, [source.id, identity.brandId]);
 
   const searchResults = search
     ? allReqs.filter((r) => r.title.toLowerCase().includes(search.toLowerCase())).slice(0, 8)
@@ -44,7 +44,7 @@ export function MergeDialog({ source, onClose, onMerged }) {
     const res = await fetch(`/api/requirements/${source.id}/merge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, targetId }),
+      body: JSON.stringify({ brandId: identity.brandId, targetId }),
     });
     setSubmitting(false);
     if (!res.ok) {

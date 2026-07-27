@@ -76,7 +76,6 @@ export function RequirementEditForm({ requirement, canSetConfidential, identity,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          memberId: identity.memberId,
           brandId: identity.brandId,
           title: form.title,
           priority: form.priority || null,
