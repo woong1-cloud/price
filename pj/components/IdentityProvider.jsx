@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearIdentity, loadIdentity } from '@/lib/identity';
+import { createClient } from '@/lib/supabaseBrowser';
 
 const IdentityContext = createContext(null);
 
@@ -30,13 +31,15 @@ export function IdentityProvider({ children }) {
     // post-hydration correction lands. Checking storage directly avoids
     // redirecting away from a valid session during that window.
     if (!loadIdentity()) {
-      router.replace('/');
+      router.replace('/login');
     }
   }, [router]);
 
-  function switchUser() {
+  async function logout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
     clearIdentity();
-    router.replace('/');
+    router.replace('/login');
   }
 
   if (!identity) {
@@ -44,7 +47,7 @@ export function IdentityProvider({ children }) {
   }
 
   return (
-    <IdentityContext.Provider value={{ identity, switchUser }}>
+    <IdentityContext.Provider value={{ identity, logout }}>
       {children}
     </IdentityContext.Provider>
   );
