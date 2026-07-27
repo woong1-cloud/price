@@ -3,9 +3,8 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
 import { errorResponse, ApiError } from '@/lib/apiError';
 
-export async function GET(request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
     await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();
@@ -28,6 +27,8 @@ export async function POST(request) {
     if (!code || !code.trim()) throw new ApiError(400, '코드는 필수입니다.');
     if (!adminMemberId) throw new ApiError(400, '초기 2차 관리자를 선택해주세요.');
 
+    // adminMemberId: 클라이언트가 고른 "새 브랜드의 초기 2차 관리자".
+    // memberId: 세션에서 검증된 "지금 이 브랜드를 생성하는 사람"(감사 기록용).
     const { memberId } = await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();

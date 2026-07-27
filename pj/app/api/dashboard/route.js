@@ -1,7 +1,7 @@
 // app/api/dashboard/route.js
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
-import { errorResponse, ApiError } from '@/lib/apiError';
+import { errorResponse } from '@/lib/apiError';
 import { computeDashboardStats } from '@/lib/dashboardStats';
 
 export async function GET(request) {
