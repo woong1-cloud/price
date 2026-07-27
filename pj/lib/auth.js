@@ -10,7 +10,9 @@ export async function getSessionMember() {
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (authError) console.error(authError);
   if (!user) {
     throw new ApiError(401, '로그인이 필요합니다.');
   }
