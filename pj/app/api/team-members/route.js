@@ -5,13 +5,15 @@ import { errorResponse, ApiError } from '@/lib/apiError';
 
 export async function GET(request) {
   try {
+    await requireGlobalAdmin();
+
     const { searchParams } = new URL(request.url);
     const includeInactive = searchParams.get('includeInactive') === 'true';
 
     const supabase = getSupabaseAdmin();
     let query = supabase
       .from('team_members')
-      .select('id, name, is_active, is_global_admin')
+      .select('id, name, is_active, is_global_admin, auth_user_id')
       .order('name');
     if (!includeInactive) query = query.eq('is_active', true);
 
@@ -26,11 +28,10 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { memberId, name } = body;
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
+    const { name } = body;
     if (!name || !name.trim()) throw new ApiError(400, '이름은 필수입니다.');
 
-    await requireGlobalAdmin(memberId);
+    await requireGlobalAdmin();
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
