@@ -31,11 +31,19 @@ export async function POST(request) {
     });
     if (createError) throw new ApiError(400, createError.message);
 
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('team_members')
       .update({ auth_user_id: created.user.id, must_change_password: true })
-      .eq('id', targetMemberId);
-    if (updateError) throw updateError;
+      .eq('id', targetMemberId)
+      .select()
+      .maybeSingle();
+    if (updateError || !updated) {
+      // team_members 연결이 실패하면 방금 만든 auth.users 계정은 아무 팀원과도
+      // 연결되지 않아 영원히 쓸 수 없는 채로 이메일만 점유하게 된다 — 되돌린다.
+      await supabase.auth.admin.deleteUser(created.user.id).catch(() => {});
+      if (updateError) throw updateError;
+      throw new ApiError(404, '팀원을 찾을 수 없습니다.');
+    }
 
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
