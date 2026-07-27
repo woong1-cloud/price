@@ -1,11 +1,15 @@
 // app/api/team-members/route.js
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
+import { getSessionMember } from '@/lib/auth';
 import { errorResponse, ApiError } from '@/lib/apiError';
 
 export async function GET(request) {
   try {
-    await requireGlobalAdmin();
+    // 목록 조회는 로그인한 모든 팀원이 필요로 한다(요구사항 담당자 표시,
+    // 브랜드 설정의 팀 배치 등 1차가 아닌 사용자도 쓰는 화면이 많다) —
+    // requireGlobalAdmin이 아니라 세션 존재만 확인한다.
+    await getSessionMember();
 
     const { searchParams } = new URL(request.url);
     const includeInactive = searchParams.get('includeInactive') === 'true';
