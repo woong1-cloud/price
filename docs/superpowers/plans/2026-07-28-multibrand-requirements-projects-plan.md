@@ -80,6 +80,8 @@ create table projects (
 -- 전개 현황: 어느 브랜드에 어디까지 갔는지
 create table project_brands (
   id uuid primary key default gen_random_uuid(),
+  -- 프로젝트가 사라지면 전개 현황은 의미가 없으므로 cascade.
+  -- (아래 requirements.project_id는 반대로 set null — 요구사항은 남아야 한다)
   project_id uuid not null references projects(id) on delete cascade,
   brand_id uuid not null references brands(id),
   status text not null default '전개예정'
@@ -94,9 +96,13 @@ create table project_brands (
 alter table requirements
   add column project_id uuid references projects(id) on delete set null;
 
-create index idx_project_brands_project on project_brands (project_id);
+-- project_id 단독 조회는 위 unique (project_id, brand_id) 제약이 만드는 인덱스가
+-- 이미 커버한다(선행 컬럼). 브랜드 단독 조회만 별도 인덱스가 필요하다.
 create index idx_project_brands_brand on project_brands (brand_id);
-create index idx_requirements_project on requirements (project_id);
+
+-- project_id 단독 조회와 (project_id, brand_id) 조합 조회를 한 인덱스로 커버한다.
+-- 후자는 전개 대상 제거 시 "이 브랜드에 남은 요구사항이 있는가" 검사에 쓰인다.
+create index idx_requirements_project_brand on requirements (project_id, brand_id);
 ```
 
 - [ ] **Step 2: Supabase SQL Editor에서 실행**
