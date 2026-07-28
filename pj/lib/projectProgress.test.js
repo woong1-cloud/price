@@ -173,4 +173,23 @@ describe('findProgressMismatches', () => {
       { projectId: 'p2', projectName: '통합 회원', brandId: 'b1', brandName: '스파오', remainingCount: 1 },
     ]);
   });
+
+  // 한 프로젝트 안에서 두 브랜드가 동시에 불일치인 경우. 위 테스트들은 프로젝트당
+  // 불일치가 최대 1건이라 안쪽 루프가 첫 건에서 멈춰도(continue 대신 break) 통과한다.
+  it('한 프로젝트에서 여러 브랜드가 불일치면 모두 수집한다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 1, totalCount: 3 },
+          { brandId: 'b2', brandName: '미쏘', status: '적용완료', doneCount: 0, totalCount: 4 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([
+      { projectId: 'p1', projectName: '빠른배송', brandId: 'b1', brandName: '스파오', remainingCount: 2 },
+      { projectId: 'p1', projectName: '빠른배송', brandId: 'b2', brandName: '미쏘', remainingCount: 4 },
+    ]);
+  });
 });

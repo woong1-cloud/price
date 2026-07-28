@@ -463,12 +463,12 @@ export function findProgressMismatches(projectsWithProgress) {
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `npm test -- --run lib/projectProgress.test.js`
-Expected: PASS (12 tests)
+Expected: PASS (13 tests)
 
 - [ ] **Step 5: 전체 테스트 확인**
 
 Run: `npm test -- --run`
-Expected: PASS (72 tests) — 기존 60개 + 신규 12개
+Expected: PASS (73 tests) — 기존 60개 + 신규 13개
 
 - [ ] **Step 6: 커밋**
 
@@ -2775,7 +2775,7 @@ git commit -m "feat: 대시보드에 프로젝트 섹션 + 불일치 알림 추�
 - [ ] **Step 1: 전체 테스트**
 
 Run: `npm test -- --run`
-Expected: PASS (72 tests)
+Expected: PASS (73 tests)
 
 - [ ] **Step 2: lint + build**
 
