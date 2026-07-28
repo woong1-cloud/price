@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -10,10 +10,8 @@ import {
   useSensors,
   useDroppable,
 } from '@dnd-kit/core';
-import { useIdentity } from '@/components/IdentityProvider';
 import { BOARD_STATUSES } from '@/lib/statuses';
 import { RequirementCard } from '@/components/RequirementCard';
-import { MergeDialog } from '@/components/MergeDialog';
 
 function Column({ status, items, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
@@ -40,36 +38,31 @@ function Column({ status, items, children }) {
   );
 }
 
-export function KanbanBoard() {
-  const { identity } = useIdentity();
-  const [reqs, setReqs] = useState([]);
-  const [error, setError] = useState('');
-  const [mergeSource, setMergeSource] = useState(null);
+// 데이터는 부모가 소유한다. 이 컴포넌트는 받은 배열을 컬럼으로 나눠 그리고
+// 드롭 이벤트를 위로 올려보내기만 한다(브랜드 보드/프로젝트 보드 공용).
+//
+// props:
+//   requirements      화면에 뿌릴 요구사항 배열
+//   onStatusChange    (req, newStatus) => void — 낙관적 갱신/롤백은 부모 책임
+//   onMerge           (req) => void — 카드의 중복처리 버튼
+//   canDragCard       (req) => boolean — 카드 단위 드래그 허용 여부
+//   showBrandBadge    카드에 브랜드명 배지를 표시할지(프로젝트 보드에서 true)
+export function KanbanBoard({
+  requirements,
+  onStatusChange,
+  onMerge,
+  canDragCard = () => true,
+  showBrandBadge = false,
+}) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(KeyboardSensor),
   );
 
-  function load() {
-    fetch(`/api/requirements?brandId=${identity.brandId}`)
-      .then((res) => res.json().then((d) => ({ res, d })))
-      .then(({ res, d }) => {
-        if (!res.ok) throw new Error(d.error ?? '불러오지 못했습니다.');
-        setReqs(d.requirements ?? []);
-        setError('');
-      })
-      .catch((e) => setError(e.message));
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.brandId]);
-
   const byStatus = useMemo(() => {
     const map = Object.fromEntries(BOARD_STATUSES.map((s) => [s, []]));
-    for (const r of reqs) {
+    for (const r of requirements) {
       if (map[r.status]) map[r.status].push(r);
     }
     // 대기는 오래된 것 먼저, 나머지는 최신 먼저
@@ -81,54 +74,35 @@ export function KanbanBoard() {
       );
     }
     return map;
-  }, [reqs]);
+  }, [requirements]);
 
-  async function onDragEnd(event) {
+  function handleDragEnd(event) {
     const { active, over } = event;
     if (!over) return;
     const newStatus = over.id;
-    const card = reqs.find((r) => r.id === active.id);
+    const card = requirements.find((r) => r.id === active.id);
     if (!card || card.status === newStatus || !BOARD_STATUSES.includes(newStatus)) return;
-
-    const prevStatus = card.status;
-    setReqs((prev) => prev.map((r) => (r.id === active.id ? { ...r, status: newStatus } : r)));
-
-    const res = await fetch(`/api/requirements/${active.id}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brandId: identity.brandId, status: newStatus }),
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      setError(d.error ?? '상태 변경 실패');
-      setReqs((prev) => prev.map((r) => (r.id === active.id ? { ...r, status: prevStatus } : r)));
-    }
+    if (!canDragCard(card)) return;
+    onStatusChange(card, newStatus);
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {BOARD_STATUSES.map((status) => (
-            <Column key={status} status={status} items={byStatus[status]}>
-              {byStatus[status].map((req) => (
-                <RequirementCard key={req.id} req={req} onMerge={setMergeSource} />
-              ))}
-            </Column>
-          ))}
-        </div>
-      </DndContext>
-      {mergeSource && (
-        <MergeDialog
-          source={mergeSource}
-          onClose={() => setMergeSource(null)}
-          onMerged={() => {
-            setMergeSource(null);
-            load();
-          }}
-        />
-      )}
-    </div>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {BOARD_STATUSES.map((status) => (
+          <Column key={status} status={status} items={byStatus[status]}>
+            {byStatus[status].map((req) => (
+              <RequirementCard
+                key={req.id}
+                req={req}
+                onMerge={onMerge}
+                draggable={canDragCard(req)}
+                showBrandBadge={showBrandBadge}
+              />
+            ))}
+          </Column>
+        ))}
+      </div>
+    </DndContext>
   );
 }
