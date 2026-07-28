@@ -15,7 +15,16 @@ const PRIORITY_STYLE = {
 //   onMerge         (req) => void
 //   draggable       false면 드래그 핸들을 잠근다(권한 없는 브랜드의 카드)
 //   showBrandBadge  카드에 브랜드명 배지를 표시(프로젝트 보드처럼 여러 브랜드가 섞일 때)
-export function RequirementCard({ req, onMerge, draggable = true, showBrandBadge = false }) {
+//   canOpen         false면 제목을 링크로 만들지 않는다. 프로젝트 보드는 전 브랜드 카드를
+//                   띄우는데, 요구사항 상세는 그 브랜드 권한이 있어야 열린다. 링크를 그냥
+//                   두면 눌렀을 때 권한 오류 페이지로 떨어진다.
+export function RequirementCard({
+  req,
+  onMerge,
+  draggable = true,
+  showBrandBadge = false,
+  canOpen = true,
+}) {
   const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: req.id,
@@ -57,13 +66,19 @@ export function RequirementCard({ req, onMerge, draggable = true, showBrandBadge
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => router.push(`/requirements/${req.id}`)}
-        className="block text-left text-[13px] text-slate-900 hover:underline"
-      >
-        {req.title}
-      </button>
+      {canOpen ? (
+        <button
+          type="button"
+          onClick={() => router.push(`/requirements/${req.id}`)}
+          className="block text-left text-[13px] text-slate-900 hover:underline"
+        >
+          {req.title}
+        </button>
+      ) : (
+        <p className="block text-left text-[13px] text-slate-500" title="이 브랜드에 대한 권한이 없습니다.">
+          {req.title}
+        </p>
+      )}
 
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[11px] text-slate-400">{req.category?.category_name ?? '-'}</span>

@@ -46,12 +46,14 @@ function Column({ status, items, children }) {
 //   onStatusChange    (req, newStatus) => void — 낙관적 갱신/롤백은 부모 책임
 //   onMerge           (req) => void — 카드의 중복처리 버튼
 //   canDragCard       (req) => boolean — 카드 단위 드래그 허용 여부
+//   canOpenCard       (req) => boolean — 상세로 이동 가능한지(권한 없으면 제목을 링크로 안 만듦)
 //   showBrandBadge    카드에 브랜드명 배지를 표시할지(프로젝트 보드에서 true)
 export function KanbanBoard({
   requirements,
   onStatusChange,
   onMerge,
   canDragCard = () => true,
+  canOpenCard = () => true,
   showBrandBadge = false,
 }) {
   const sensors = useSensors(
@@ -97,6 +99,7 @@ export function KanbanBoard({
                 req={req}
                 onMerge={onMerge}
                 draggable={canDragCard(req)}
+                canOpen={canOpenCard(req)}
                 showBrandBadge={showBrandBadge}
               />
             ))}

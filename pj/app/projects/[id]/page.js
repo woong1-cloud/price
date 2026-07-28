@@ -81,6 +81,13 @@ export default function ProjectDetailPage() {
     [globalAdmin, tierByBrand],
   );
 
+  // 상세 조회는 그 브랜드에 4차 이상, 즉 배치만 돼 있으면 된다. 권한이 없는 브랜드의
+  // 카드까지 링크로 만들면 눌렀을 때 권한 오류 페이지로 떨어지므로 제목을 잠근다.
+  const canOpenCard = useCallback(
+    (req) => globalAdmin || tierByBrand.has(req.brand_id),
+    [globalAdmin, tierByBrand],
+  );
+
   // 카드에 브랜드명을 붙인다(KanbanBoard의 showBrandBadge가 이 필드를 읽는다).
   const boardRequirements = useMemo(() => {
     if (!data) return [];
@@ -229,6 +236,7 @@ export default function ProjectDetailPage() {
             onStatusChange={handleStatusChange}
             onMerge={setMergeSource}
             canDragCard={canDragCard}
+            canOpenCard={canOpenCard}
             showBrandBadge
           />
         )}
