@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeProjectProgress } from './projectProgress';
+import { computeProjectProgress, findProgressMismatches } from './projectProgress';
 
 const BRANDS = [
   { id: 'b1', name: '스파오' },
@@ -85,5 +85,92 @@ describe('computeProjectProgress', () => {
     const projectBrands = [{ brand_id: 'unknown', status: '진행중' }];
     const result = computeProjectProgress({ requirements: [], projectBrands, brands: BRANDS });
     expect(result.byBrand[0].brandName).toBe('알 수 없음');
+  });
+});
+
+describe('findProgressMismatches', () => {
+  it('불일치가 없으면 빈 배열을 반환한다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송 시스템 개발',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 5, totalCount: 5 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([]);
+  });
+
+  it('적용완료인데 미완료가 남은 조합을 찾아낸다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송 시스템 개발',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 10, totalCount: 12 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([
+      {
+        projectId: 'p1',
+        projectName: '빠른배송 시스템 개발',
+        brandId: 'b1',
+        brandName: '스파오',
+        remainingCount: 2,
+      },
+    ]);
+  });
+
+  it('적용완료가 아닌 상태는 미완료가 남아도 불일치가 아니다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송 시스템 개발',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '진행중', doneCount: 1, totalCount: 5 },
+          { brandId: 'b2', brandName: '미쏘', status: '전개예정', doneCount: 0, totalCount: 0 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([]);
+  });
+
+  it('요구사항이 0건인데 적용완료면 불일치가 아니다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송 시스템 개발',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 0, totalCount: 0 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([]);
+  });
+
+  it('여러 프로젝트·브랜드에 걸친 불일치를 모두 모은다', () => {
+    const input = [
+      {
+        projectId: 'p1',
+        projectName: '빠른배송',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 1, totalCount: 3 },
+          { brandId: 'b2', brandName: '미쏘', status: '적용완료', doneCount: 2, totalCount: 2 },
+        ],
+      },
+      {
+        projectId: 'p2',
+        projectName: '통합 회원',
+        byBrand: [
+          { brandId: 'b1', brandName: '스파오', status: '적용완료', doneCount: 0, totalCount: 1 },
+        ],
+      },
+    ];
+    expect(findProgressMismatches(input)).toEqual([
+      { projectId: 'p1', projectName: '빠른배송', brandId: 'b1', brandName: '스파오', remainingCount: 2 },
+      { projectId: 'p2', projectName: '통합 회원', brandId: 'b1', brandName: '스파오', remainingCount: 1 },
+    ]);
   });
 });
