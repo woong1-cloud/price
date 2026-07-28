@@ -2320,9 +2320,20 @@ function emptyForm() {
 export function RequirementFormDialog({ open, onOpenChange, categories, projects, identity, onCreated }) {
 ```
 
-3) `handleSubmit`에서 등록 성공 후 프로젝트를 연결한다. `const created = data.requirement;` 바로 아래에 다음 블록을 넣는다:
+3) `handleSubmit`에서 등록 성공 후 프로젝트를 연결한다.
+
+기존에는 이미지 업로드 실패만 `imageUploadFailed` 플래그로 다이얼로그를 열어둔 채 경고를 보여줬다. 프로젝트 연결 실패도 성격이 같으므로(본문은 저장됨, 부수 작업만 실패) **두 경우를 한 배열에 모으고 하나라도 있으면 닫지 않는다.** 플래그를 하나 더 만드는 방식은 둘 다 실패했을 때 뒤 메시지가 앞 메시지를 덮어쓴다.
+
+`const created = data.requirement;`부터 기존 `if (!imageUploadFailed) { onOpenChange(false); }`까지를 통째로 다음으로 교체한다:
 
 ```js
+      const created = data.requirement;
+
+      // 본문 저장 이후의 부수 작업들은 실패해도 요구사항 자체는 이미 만들어진 상태다.
+      // 그래서 예외로 중단하지 않고 경고만 모은다. 하나라도 모이면 다이얼로그를 닫지
+      // 않는다 — 닫으면 애니메이션과 함께 메시지가 바로 사라져 사용자가 못 읽는다.
+      const warnings = [];
+
       // 프로젝트 연결은 POST가 아니라 PATCH로 한다 — 전개 대상 브랜드 자동 추가
       // 규칙이 그 라우트에만 있기 때문이다(Task 10 참조).
       if (form.projectId !== 'none' && created?.id) {
@@ -2333,9 +2344,37 @@ export function RequirementFormDialog({ open, onOpenChange, categories, projects
         });
         if (!linkRes.ok) {
           const linkData = await linkRes.json();
-          // 본문은 이미 저장됐다. 상세 화면에서 다시 연결할 수 있으므로 경고만 남긴다.
-          setError(`요구사항은 등록됐지만 프로젝트 연결에 실패했습니다: ${linkData.error ?? ''}`);
+          // 상세 화면에서 다시 연결할 수 있다.
+          warnings.push(`프로젝트 연결에 실패했습니다(${linkData.error ?? ''})`);
         }
+      }
+
+      if (imageFiles.length > 0 && created?.id) {
+        try {
+          const fd = new FormData();
+          fd.append('brandId', identity.brandId);
+          imageFiles.forEach((f) => fd.append('files', f));
+          const imgRes = await fetch(`/api/requirements/${created.id}/images`, {
+            method: 'POST',
+            body: fd,
+          });
+          if (!imgRes.ok) {
+            const imgData = await imgRes.json();
+            throw new Error(imgData.error ?? '이미지 업로드에 실패했습니다.');
+          }
+        } catch (imgErr) {
+          // 상세에서 이미지 재시도 가능.
+          warnings.push(`이미지 업로드에 실패했습니다(${imgErr.message})`);
+        }
+      }
+
+      setForm(emptyForm());
+      setImageFiles([]);
+      onCreated();
+      if (warnings.length > 0) {
+        setError(`요구사항은 등록됐지만 ${warnings.join(' / ')}`);
+      } else {
+        onOpenChange(false);
       }
 ```
 
@@ -2515,7 +2554,7 @@ export function FilterBar({ teamMembers, categories, projects, value, onChange }
                 value={r.project_id ?? 'none'}
                 onValueChange={changeProject}
               >
-                <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                <SelectTrigger className="mt-1 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -316,7 +316,7 @@ export function RequirementDetail({ id }) {
                 value={r.project_id ?? 'none'}
                 onValueChange={changeProject}
               >
-                <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                <SelectTrigger className="mt-1 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

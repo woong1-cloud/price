@@ -114,6 +114,12 @@ export function RequirementFormDialog({ open, onOpenChange, categories, projects
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '등록에 실패했습니다.');
       const created = data.requirement;
+
+      // 본문 저장 이후의 부수 작업들은 실패해도 요구사항 자체는 이미 만들어진 상태다.
+      // 그래서 예외로 중단하지 않고 경고만 모은다. 하나라도 모이면 다이얼로그를 닫지
+      // 않는다 — 닫으면 애니메이션과 함께 메시지가 바로 사라져 사용자가 못 읽는다.
+      const warnings = [];
+
       // 프로젝트 연결은 POST가 아니라 PATCH로 한다 — 전개 대상 브랜드 자동 추가
       // 규칙이 그 라우트에만 있기 때문이다.
       if (form.projectId !== 'none' && created?.id) {
@@ -124,11 +130,11 @@ export function RequirementFormDialog({ open, onOpenChange, categories, projects
         });
         if (!linkRes.ok) {
           const linkData = await linkRes.json();
-          // 본문은 이미 저장됐다. 상세 화면에서 다시 연결할 수 있으므로 경고만 남긴다.
-          setError(`요구사항은 등록됐지만 프로젝트 연결에 실패했습니다: ${linkData.error ?? ''}`);
+          // 상세 화면에서 다시 연결할 수 있다.
+          warnings.push(`프로젝트 연결에 실패했습니다(${linkData.error ?? ''})`);
         }
       }
-      let imageUploadFailed = false;
+
       if (imageFiles.length > 0 && created?.id) {
         try {
           const fd = new FormData();
@@ -143,16 +149,17 @@ export function RequirementFormDialog({ open, onOpenChange, categories, projects
             throw new Error(imgData.error ?? '이미지 업로드에 실패했습니다.');
           }
         } catch (imgErr) {
-          // 본문은 이미 저장됨 — 상세에서 이미지 재시도 가능. 다이얼로그를 닫지 않고
-          // 경고를 계속 보여준다(닫으면 애니메이션과 함께 메시지가 바로 사라져 버림).
-          imageUploadFailed = true;
-          setError(`요구사항은 등록됐지만 이미지 업로드에 실패했습니다: ${imgErr.message}`);
+          // 상세에서 이미지 재시도 가능.
+          warnings.push(`이미지 업로드에 실패했습니다(${imgErr.message})`);
         }
       }
+
       setForm(emptyForm());
       setImageFiles([]);
       onCreated();
-      if (!imageUploadFailed) {
+      if (warnings.length > 0) {
+        setError(`요구사항은 등록됐지만 ${warnings.join(' / ')}`);
+      } else {
         onOpenChange(false);
       }
     } catch (err) {
