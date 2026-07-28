@@ -107,6 +107,8 @@ export default function ProjectDetailPage() {
   }
 
   async function handleStatusChange(card, newStatus) {
+    // callApi와 마찬가지로 새 동작을 시작할 때 이전 오류 배너를 지운다.
+    setActionError('');
     const prevStatus = card.status;
     setData((prev) =>
       prev

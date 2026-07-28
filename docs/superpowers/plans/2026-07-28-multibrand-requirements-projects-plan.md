@@ -1991,6 +1991,11 @@ git commit -m "feat: /projects 목록 페이지 추가 (내 브랜드 기본 + �
 
 **Files:**
 - Create: `app/projects/[id]/page.js`
+- Modify: `components/MergeDialog.jsx` (아래 주의 참조)
+
+> **주의 — `MergeDialog`의 브랜드 가정:** 이 컴포넌트는 `identity.brandId`(로그인 시 고른 브랜드 하나)로 유사 후보를 조회하고 병합 요청을 보낸다. 프로젝트 보드는 여러 브랜드 카드가 섞이므로, 지금 선택한 브랜드가 아닌 카드를 병합하려 하면 서버가 403을 내는데 `.catch(() => {})`가 이를 삼켜 "유사한 요청을 찾지 못했습니다"처럼 보인다. 게다가 "직접 검색" 목록에는 엉뚱한 브랜드 요구사항이 뜬다.
+>
+> 그래서 `MergeDialog` 안의 브랜드를 `source.brand_id ?? identity.brandId`로 바꾼다. 브랜드 보드의 목록 API는 `brand_id`를 안 내려주므로 그쪽 동작은 그대로다.
 
 - [ ] **Step 1: 페이지 작성**
 
@@ -2001,7 +2006,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useIdentity } from '@/components/IdentityProvider';
-import { isGlobalAdmin, TIER_RANK } from '@/lib/tiers';
+import { isGlobalAdmin, canProcess, canManageBrand } from '@/lib/tiers';
 import { KanbanBoard } from '@/components/KanbanBoard';
 import { MergeDialog } from '@/components/MergeDialog';
 import { ProjectBrandsSection } from '@/components/ProjectBrandsSection';
@@ -2069,20 +2074,12 @@ export default function ProjectDetailPage() {
   );
 
   const canEditStatus = useCallback(
-    (brandId) => {
-      if (globalAdmin) return true;
-      const tier = tierByBrand.get(brandId);
-      return Boolean(tier) && TIER_RANK[tier] >= TIER_RANK['2차'];
-    },
+    (brandId) => canManageBrand({ isGlobalAdmin: globalAdmin, tier: tierByBrand.get(brandId) }),
     [globalAdmin, tierByBrand],
   );
 
   const canDragCard = useCallback(
-    (req) => {
-      if (globalAdmin) return true;
-      const tier = tierByBrand.get(req.brand_id);
-      return Boolean(tier) && TIER_RANK[tier] >= TIER_RANK['3차'];
-    },
+    (req) => canProcess({ isGlobalAdmin: globalAdmin, tier: tierByBrand.get(req.brand_id) }),
     [globalAdmin, tierByBrand],
   );
 
@@ -2260,10 +2257,12 @@ export default function ProjectDetailPage() {
 }
 ```
 
-- [ ] **Step 2: `TIER_RANK`가 `lib/tiers.js`에서 export되는지 확인**
+- [ ] **Step 2: `canProcess`/`canManageBrand` 시그니처 확인**
 
-Run: `grep -n "export const TIER_RANK" lib/tiers.js`
-Expected: `1:export const TIER_RANK = ...` — 이미 export되어 있다.
+Run: `grep -n "export function can" lib/tiers.js`
+Expected: 둘 다 `identity` 객체 하나를 받는다 — `canProcess`는 3차 이상, `canManageBrand`는 2차 이상. 여기서 `{ isGlobalAdmin, tier }` 모양으로 넘기는 이유다.
+
+> 원래 이 태스크는 `TIER_RANK`로 직접 비교했지만, 같은 판정이 이미 `lib/tiers.js`에 테스트까지 갖춰 있어서 그쪽을 쓰도록 바꿨다(PJ-Task 6에서 같은 정리를 한 것과 동일한 이유).
 
 - [ ] **Step 3: lint + build 확인**
 

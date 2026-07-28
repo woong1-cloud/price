@@ -15,6 +15,10 @@ import { Input } from '@/components/ui/input';
 // props: source(req), onClose(), onMerged()
 export function MergeDialog({ source, onClose, onMerged }) {
   const { identity } = useIdentity();
+  // 병합은 같은 브랜드 안에서만 가능하다. 프로젝트 상세 보드는 여러 브랜드 카드가
+  // 섞여 있으므로 지금 선택한 브랜드가 아니라 그 카드 자신의 브랜드를 써야 한다.
+  // 브랜드 보드의 목록 API는 brand_id를 안 내려주므로 그때는 현재 브랜드로 떨어진다.
+  const brandId = source.brand_id ?? identity.brandId;
   const [candidates, setCandidates] = useState([]);
   const [allReqs, setAllReqs] = useState([]);
   const [search, setSearch] = useState('');
@@ -23,15 +27,15 @@ export function MergeDialog({ source, onClose, onMerged }) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/requirements/${source.id}/similar?brandId=${identity.brandId}`)
+    fetch(`/api/requirements/${source.id}/similar?brandId=${brandId}`)
       .then((res) => res.json())
       .then((d) => setCandidates(d.candidates ?? []))
       .catch(() => {});
-    fetch(`/api/requirements?brandId=${identity.brandId}`)
+    fetch(`/api/requirements?brandId=${brandId}`)
       .then((res) => res.json())
       .then((d) => setAllReqs((d.requirements ?? []).filter((r) => r.id !== source.id && r.status !== '중복')))
       .catch(() => {});
-  }, [source.id, identity.brandId]);
+  }, [source.id, brandId]);
 
   const searchResults = search
     ? allReqs.filter((r) => r.title.toLowerCase().includes(search.toLowerCase())).slice(0, 8)
@@ -44,7 +48,7 @@ export function MergeDialog({ source, onClose, onMerged }) {
     const res = await fetch(`/api/requirements/${source.id}/merge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brandId: identity.brandId, targetId }),
+      body: JSON.stringify({ brandId, targetId }),
     });
     setSubmitting(false);
     if (!res.ok) {
