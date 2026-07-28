@@ -13,7 +13,8 @@ export async function GET(request, { params }) {
     const { data: requirement, error: reqError } = await supabase
       .from('requirements')
       .select(
-        '*, requester:team_members!requirements_requester_fkey(id, name), ' +
+        '*, project:projects(id, name), ' +
+          'requester:team_members!requirements_requester_fkey(id, name), ' +
           'assignee:team_members!requirements_assignee_fkey(id, name), ' +
           'category:brand_categories(id, category_name)'
       )

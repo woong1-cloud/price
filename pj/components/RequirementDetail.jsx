@@ -25,6 +25,7 @@ export function RequirementDetail({ id }) {
   const [editing, setEditing] = useState(false);
   const [data, setData] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [projects, setProjects] = useState([]);
   // loadError: 최초/재조회 실패 — 화면 전체를 대체한다.
   // actionError: 상태·담당자·이미지 조작 실패 — 이미 불러온 화면은 유지한 채 배너로만 보여준다.
   const [loadError, setLoadError] = useState('');
@@ -35,6 +36,13 @@ export function RequirementDetail({ id }) {
     fetch('/api/team-members')
       .then((res) => res.json())
       .then((d) => setTeamMembers(d.teamMembers ?? []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/projects')
+      .then((res) => res.json())
+      .then((d) => setProjects(d.projects ?? []))
       .catch(() => {});
   }, []);
 
@@ -81,6 +89,21 @@ export function RequirementDetail({ id }) {
     if (!res.ok) {
       const d = await res.json();
       setActionError(d.error ?? '담당자 변경 실패');
+      return;
+    }
+    load();
+  }
+
+  async function changeProject(nextProjectId) {
+    setActionError('');
+    const res = await fetch(`/api/requirements/${id}/project`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: nextProjectId === 'none' ? null : nextProjectId }),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      setActionError(d.error ?? '프로젝트 변경 실패');
       return;
     }
     load();
@@ -280,6 +303,38 @@ export function RequirementDetail({ id }) {
               </Select>
             ) : (
               <p className="font-medium text-slate-900">{r.assignee?.name ?? '미지정'}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-slate-500">프로젝트</p>
+            {processAllowed ? (
+              <Select
+                items={[
+                  { value: 'none', label: '선택 안 함' },
+                  ...projects.map((p) => ({ value: p.id, label: p.name })),
+                ]}
+                value={r.project_id ?? 'none'}
+                onValueChange={changeProject}
+              >
+                <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">선택 안 함</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : r.project ? (
+              <Link
+                href={`/projects/${r.project.id}`}
+                className="font-medium text-indigo-600 hover:underline"
+              >
+                {r.project.name}
+              </Link>
+            ) : (
+              <p className="font-medium text-slate-900">-</p>
             )}
           </div>
           <MetaRow label="카테고리" value={r.category?.category_name ?? '-'} />

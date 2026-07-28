@@ -11,7 +11,7 @@ import {
 const PRIORITIES = ['상', '중', '하'];
 
 // props: teamMembers[], categories[], value{assignee,category,priority}, onChange(patch)
-export function FilterBar({ teamMembers, categories, value, onChange }) {
+export function FilterBar({ teamMembers, categories, projects, value, onChange }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <FilterSelect
@@ -32,10 +32,16 @@ export function FilterBar({ teamMembers, categories, value, onChange }) {
         current={value.priority}
         onPick={(v) => onChange({ priority: v })}
       />
-      {(value.assignee || value.category || value.priority) && (
+      <FilterSelect
+        placeholder="프로젝트"
+        options={projects.map((p) => ({ value: p.id, label: p.name }))}
+        current={value.project}
+        onPick={(v) => onChange({ project: v })}
+      />
+      {(value.assignee || value.category || value.priority || value.project) && (
         <button
           type="button"
-          onClick={() => onChange({ assignee: '', category: '', priority: '' })}
+          onClick={() => onChange({ assignee: '', category: '', priority: '', project: '' })}
           className="text-xs text-slate-500 underline hover:text-slate-700"
         >
           필터 초기화

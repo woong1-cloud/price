@@ -61,6 +61,7 @@ function emptyForm() {
     urgency: '',
     requestDate: todayLocal(),
     category: 'none',
+    projectId: 'none',
     asIs: '',
     toBe: '',
     note: '',
@@ -68,7 +69,7 @@ function emptyForm() {
   };
 }
 
-export function RequirementFormDialog({ open, onOpenChange, categories, identity, onCreated }) {
+export function RequirementFormDialog({ open, onOpenChange, categories, projects = [], identity, onCreated }) {
   const [form, setForm] = useState(emptyForm());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -113,6 +114,20 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '등록에 실패했습니다.');
       const created = data.requirement;
+      // 프로젝트 연결은 POST가 아니라 PATCH로 한다 — 전개 대상 브랜드 자동 추가
+      // 규칙이 그 라우트에만 있기 때문이다.
+      if (form.projectId !== 'none' && created?.id) {
+        const linkRes = await fetch(`/api/requirements/${created.id}/project`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: form.projectId }),
+        });
+        if (!linkRes.ok) {
+          const linkData = await linkRes.json();
+          // 본문은 이미 저장됐다. 상세 화면에서 다시 연결할 수 있으므로 경고만 남긴다.
+          setError(`요구사항은 등록됐지만 프로젝트 연결에 실패했습니다: ${linkData.error ?? ''}`);
+        }
+      }
       let imageUploadFailed = false;
       if (imageFiles.length > 0 && created?.id) {
         try {
@@ -208,6 +223,27 @@ export function RequirementFormDialog({ open, onOpenChange, categories, identity
                 <SelectItem value="none">선택 안 함</SelectItem>
                 {categories.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.category_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="projectId">프로젝트</Label>
+            <Select
+              items={[
+                { value: 'none', label: '선택 안 함' },
+                ...projects.map((p) => ({ value: p.id, label: p.name })),
+              ]}
+              value={form.projectId}
+              onValueChange={(value) => updateField('projectId', value)}
+            >
+              <SelectTrigger id="projectId" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">선택 안 함</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
