@@ -82,7 +82,14 @@ export async function POST(request) {
       })
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      // 23503 = FK 위반(없는 team_member), 22P02 = uuid 형식 오류.
+      // 둘 다 클라이언트가 잘못 보낸 owner 값이므로 500이 아니라 400으로 돌려준다.
+      if (error.code === '23503' || error.code === '22P02') {
+        throw new ApiError(400, '유효하지 않은 담당자입니다.');
+      }
+      throw error;
+    }
 
     return Response.json({ project: data }, { status: 201 });
   } catch (error) {
