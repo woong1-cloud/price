@@ -25,7 +25,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!manageBrand) return undefined;
     let cancelled = false;
-    fetch(`/api/brand-team?memberId=${identity.memberId}&brandId=${identity.brandId}`)
+    fetch(`/api/brand-team?brandId=${identity.brandId}`)
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
         if (cancelled) return;
@@ -55,7 +55,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [manageBrand, identity.memberId, identity.brandId, reloadToken]);
+  }, [manageBrand, identity.brandId, reloadToken]);
 
   function refresh() {
     setReloadToken((t) => t + 1);

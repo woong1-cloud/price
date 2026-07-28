@@ -7,15 +7,14 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const brandId = searchParams.get('brandId');
-    const memberId = searchParams.get('memberId');
-    if (!brandId || !memberId) throw new ApiError(400, 'brandId와 memberId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
     const status = searchParams.get('status');
     const assignee = searchParams.get('assignee');
     const category = searchParams.get('category');
     const priority = searchParams.get('priority');
 
-    const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, brandId, '4차');
+    const { tier, isGlobalAdmin } = await requireBrandAccess(brandId, '4차');
     const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
 
     const supabase = getSupabaseAdmin();
@@ -54,12 +53,10 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const {
-      memberId,
       brandId,
       priority,
       urgency,
       requestDate,
-      requester,
       category,
       title,
       asIs,
@@ -68,10 +65,10 @@ export async function POST(request) {
       isConfidential,
     } = body;
 
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
     if (!title || !title.trim()) throw new ApiError(400, '제목은 필수입니다.');
 
-    const { isGlobalAdmin, tier } = await requireBrandAccess(memberId, brandId, '4차');
+    const { memberId, isGlobalAdmin, tier } = await requireBrandAccess(brandId, '4차');
     const canSetConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
 
     const supabase = getSupabaseAdmin();
@@ -82,7 +79,7 @@ export async function POST(request) {
         priority: priority || null,
         urgency: urgency || null,
         request_date: requestDate || new Date().toISOString().slice(0, 10),
-        requester: requester || null,
+        requester: memberId,
         category: category || null,
         title: title.trim(),
         as_is: asIs || null,

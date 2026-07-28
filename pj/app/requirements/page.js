@@ -24,7 +24,6 @@ export default function RequirementsPage() {
 
   const currentKey = JSON.stringify({
     brandId: identity.brandId,
-    memberId: identity.memberId,
     reloadToken,
     filters,
   });
@@ -47,7 +46,7 @@ export default function RequirementsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const params = new URLSearchParams({ brandId: identity.brandId, memberId: identity.memberId });
+    const params = new URLSearchParams({ brandId: identity.brandId });
     if (filters.assignee) params.set('assignee', filters.assignee);
     if (filters.category) params.set('category', filters.category);
     if (filters.priority) params.set('priority', filters.priority);
@@ -69,7 +68,7 @@ export default function RequirementsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.brandId, identity.memberId, reloadToken, filters]);
+  }, [identity.brandId, reloadToken, filters]);
 
   return (
     <div className="flex flex-col gap-4">

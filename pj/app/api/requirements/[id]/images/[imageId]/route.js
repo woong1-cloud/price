@@ -7,11 +7,10 @@ export async function DELETE(request, { params }) {
   try {
     const { id, imageId } = await params;
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
     const brandId = searchParams.get('brandId');
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '4차');
+    await requireBrandAccess(brandId, '4차');
 
     const supabase = getSupabaseAdmin();
     const { data: image, error: imgError } = await supabase

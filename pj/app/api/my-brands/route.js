@@ -1,27 +1,13 @@
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { errorResponse, ApiError } from '@/lib/apiError';
+import { getSessionMember } from '@/lib/auth';
+import { errorResponse } from '@/lib/apiError';
 
-export async function GET(request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
-
+    const { memberId, isGlobalAdmin } = await getSessionMember();
     const supabase = getSupabaseAdmin();
-    const { data: member, error: memberError } = await supabase
-      .from('team_members')
-      .select('id, is_active, is_global_admin')
-      .eq('id', memberId)
-      .single();
-    if (memberError) {
-      console.error(memberError);
-      throw new ApiError(500, '사용자 조회 중 오류가 발생했습니다.');
-    }
-    if (!member || !member.is_active) {
-      throw new ApiError(403, '유효하지 않은 사용자입니다.');
-    }
 
-    if (member.is_global_admin) {
+    if (isGlobalAdmin) {
       const { data, error } = await supabase
         .from('brands')
         .select('id, name, code')

@@ -58,7 +58,6 @@ export function BrandTeamAssignDialog({ open, onOpenChange, candidates, identity
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          memberId: identity.memberId,
           brandId: identity.brandId,
           targetMemberId: targetId,
           tier,

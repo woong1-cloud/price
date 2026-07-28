@@ -7,10 +7,10 @@ export async function POST(request, { params }) {
   try {
     const { id } = await params; // source(중복이 될 건)
     const body = await request.json();
-    const { memberId, brandId, targetId } = body;
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    const { brandId, targetId } = body;
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '3차');
+    const { memberId } = await requireBrandAccess(brandId, '3차');
 
     const supabase = getSupabaseAdmin();
     const { data: rows, error: fetchError } = await supabase

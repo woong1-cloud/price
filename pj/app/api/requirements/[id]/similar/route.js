@@ -15,11 +15,10 @@ export async function GET(request, { params }) {
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
     const brandId = searchParams.get('brandId');
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
-    await requireBrandAccess(memberId, brandId, '3차');
+    await requireBrandAccess(brandId, '3차');
 
     const supabase = getSupabaseAdmin();
     const { data: self, error: selfError } = await supabase

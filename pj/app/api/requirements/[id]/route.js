@@ -9,9 +9,6 @@ export async function GET(request, { params }) {
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
-
     const supabase = getSupabaseAdmin();
     const { data: requirement, error: reqError } = await supabase
       .from('requirements')
@@ -25,7 +22,7 @@ export async function GET(request, { params }) {
     if (reqError) throw reqError;
     if (!requirement) throw new ApiError(404, '요구사항을 찾을 수 없습니다.');
 
-    const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, requirement.brand_id, '4차');
+    const { tier, isGlobalAdmin } = await requireBrandAccess(requirement.brand_id, '4차');
     const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
     if (requirement.is_confidential && !canSeeConfidential) {
       throw new ApiError(403, '비공개 요구사항은 조회할 수 없습니다.');
@@ -76,10 +73,10 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { memberId, brandId, title, priority, urgency, category, asIs, toBe, note, isConfidential } = body;
-    if (!memberId || !brandId) throw new ApiError(400, 'memberId와 brandId가 필요합니다.');
+    const { brandId, title, priority, urgency, category, asIs, toBe, note, isConfidential } = body;
+    if (!brandId) throw new ApiError(400, 'brandId가 필요합니다.');
 
-    const { tier, isGlobalAdmin } = await requireBrandAccess(memberId, brandId, '4차');
+    const { memberId, tier, isGlobalAdmin } = await requireBrandAccess(brandId, '4차');
 
     const supabase = getSupabaseAdmin();
     const { data: current, error: curError } = await supabase

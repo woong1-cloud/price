@@ -5,7 +5,7 @@ import { useIdentity } from './IdentityProvider';
 import { canProcess, canManageBrand, isGlobalAdmin } from '@/lib/tiers';
 
 export function TopBar() {
-  const { identity, switchUser } = useIdentity();
+  const { identity, logout } = useIdentity();
   const processAllowed = canProcess(identity);
   const manageBrand = canManageBrand(identity);
   const globalAdmin = isGlobalAdmin(identity);
@@ -42,9 +42,14 @@ export function TopBar() {
           </Link>
         )}
       </div>
-      <button onClick={switchUser} className="text-sm text-slate-500 underline hover:text-slate-700">
-        다른 사용자로 전환
-      </button>
+      <div className="flex items-center gap-3">
+        <Link href="/change-password" className="text-sm text-slate-500 hover:text-slate-700">
+          비밀번호 변경
+        </Link>
+        <button onClick={logout} className="text-sm text-slate-500 underline hover:text-slate-700">
+          로그아웃
+        </button>
+      </div>
     </header>
   );
 }

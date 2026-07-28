@@ -52,7 +52,7 @@ export function KanbanBoard() {
   );
 
   function load() {
-    fetch(`/api/requirements?brandId=${identity.brandId}&memberId=${identity.memberId}`)
+    fetch(`/api/requirements?brandId=${identity.brandId}`)
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
         if (!res.ok) throw new Error(d.error ?? '불러오지 못했습니다.');
@@ -65,7 +65,7 @@ export function KanbanBoard() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.brandId, identity.memberId]);
+  }, [identity.brandId]);
 
   const byStatus = useMemo(() => {
     const map = Object.fromEntries(BOARD_STATUSES.map((s) => [s, []]));
@@ -96,7 +96,7 @@ export function KanbanBoard() {
     const res = await fetch(`/api/requirements/${active.id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, brandId: identity.brandId, status: newStatus }),
+      body: JSON.stringify({ brandId: identity.brandId, status: newStatus }),
     });
     if (!res.ok) {
       const d = await res.json();

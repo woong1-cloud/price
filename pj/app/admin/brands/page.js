@@ -6,6 +6,7 @@ import { useIdentity } from '@/components/IdentityProvider';
 import { isGlobalAdmin } from '@/lib/tiers';
 import { BrandFormDialog } from '@/components/BrandFormDialog';
 import { TeamMemberFormDialog } from '@/components/TeamMemberFormDialog';
+import { AccountCredentialDialog } from '@/components/AccountCredentialDialog';
 
 export default function AdminBrandsPage() {
   const { identity } = useIdentity();
@@ -20,6 +21,7 @@ export default function AdminBrandsPage() {
   const [brandDialogOpen, setBrandDialogOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState(null);
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+  const [accountDialogTarget, setAccountDialogTarget] = useState(null);
 
   useEffect(() => {
     if (!globalAdmin) router.replace('/requirements');
@@ -28,7 +30,7 @@ export default function AdminBrandsPage() {
   useEffect(() => {
     if (!globalAdmin) return undefined;
     let cancelled = false;
-    fetch(`/api/brands?memberId=${identity.memberId}`)
+    fetch('/api/brands')
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
         if (cancelled) return;
@@ -52,7 +54,7 @@ export default function AdminBrandsPage() {
     return () => {
       cancelled = true;
     };
-  }, [globalAdmin, identity.memberId, reloadToken]);
+  }, [globalAdmin, reloadToken]);
 
   function refresh() {
     setReloadToken((t) => t + 1);
@@ -63,7 +65,7 @@ export default function AdminBrandsPage() {
     const res = await fetch(`/api/brands/${brand.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, isActive: !brand.is_active }),
+      body: JSON.stringify({ isActive: !brand.is_active }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -78,7 +80,7 @@ export default function AdminBrandsPage() {
     const res = await fetch(`/api/team-members/${member.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, isActive: !member.is_active }),
+      body: JSON.stringify({ isActive: !member.is_active }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -93,7 +95,7 @@ export default function AdminBrandsPage() {
     const res = await fetch(`/api/team-members/${member.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: identity.memberId, isGlobalAdmin: !member.is_global_admin }),
+      body: JSON.stringify({ isGlobalAdmin: !member.is_global_admin }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -217,6 +219,13 @@ export default function AdminBrandsPage() {
                 <td className="py-2 text-right">
                   <button
                     type="button"
+                    onClick={() => setAccountDialogTarget(m)}
+                    className="mr-3 text-indigo-600 hover:underline"
+                  >
+                    {m.auth_user_id ? '비밀번호 재설정' : '계정 생성'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => toggleGlobalAdmin(m)}
                     className="mr-3 text-indigo-600 hover:underline"
                   >
@@ -245,6 +254,14 @@ export default function AdminBrandsPage() {
         onOpenChange={setMemberDialogOpen}
         identity={identity}
         onCreated={refresh}
+      />
+      <AccountCredentialDialog
+        open={Boolean(accountDialogTarget)}
+        onOpenChange={(v) => {
+          if (!v) setAccountDialogTarget(null);
+        }}
+        member={accountDialogTarget}
+        onSaved={refresh}
       />
     </div>
   );

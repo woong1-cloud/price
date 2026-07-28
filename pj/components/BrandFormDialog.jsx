@@ -70,9 +70,8 @@ export function BrandFormDialog({ open, onOpenChange, brand, teamMembers, identi
     const url = isEdit ? `/api/brands/${brand.id}` : '/api/brands';
     const method = isEdit ? 'PATCH' : 'POST';
     const body = isEdit
-      ? { memberId: identity.memberId, name: form.name, code: form.code, workflowTemplate: form.workflowTemplate }
+      ? { name: form.name, code: form.code, workflowTemplate: form.workflowTemplate }
       : {
-          memberId: identity.memberId,
           name: form.name,
           code: form.code,
           workflowTemplate: form.workflowTemplate,

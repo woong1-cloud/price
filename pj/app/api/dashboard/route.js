@@ -1,16 +1,13 @@
 // app/api/dashboard/route.js
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireGlobalAdmin } from '@/lib/permissions';
-import { errorResponse, ApiError } from '@/lib/apiError';
+import { errorResponse } from '@/lib/apiError';
 import { computeDashboardStats } from '@/lib/dashboardStats';
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const memberId = searchParams.get('memberId');
-    if (!memberId) throw new ApiError(400, 'memberId가 필요합니다.');
-
-    await requireGlobalAdmin(memberId);
+    await requireGlobalAdmin();
 
     const daysParam = searchParams.get('days');
     const periodDays = daysParam === '7' || daysParam === '30' ? Number(daysParam) : null;
