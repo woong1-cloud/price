@@ -13,6 +13,7 @@ export async function GET(request) {
     const assignee = searchParams.get('assignee');
     const category = searchParams.get('category');
     const priority = searchParams.get('priority');
+    const project = searchParams.get('project');
 
     const { tier, isGlobalAdmin } = await requireBrandAccess(brandId, '4차');
     const canSeeConfidential = isGlobalAdmin || TIER_RANK[tier] >= TIER_RANK['3차'];
@@ -22,6 +23,7 @@ export async function GET(request) {
       .from('requirements')
       .select(
         'id, priority, urgency, request_date, status, title, is_confidential, sprint_tag, duplicate_count, ' +
+          'project_id, project:projects(id, name), ' +
           'requester:team_members!requirements_requester_fkey(id, name), ' +
           'assignee:team_members!requirements_assignee_fkey(id, name), ' +
           'category:brand_categories(id, category_name), ' +
@@ -35,6 +37,7 @@ export async function GET(request) {
     if (assignee) query = query.eq('assignee', assignee);
     if (category) query = query.eq('category', category);
     if (priority) query = query.eq('priority', priority);
+    if (project) query = query.eq('project_id', project);
 
     const { data, error } = await query;
     if (error) throw error;

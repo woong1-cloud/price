@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useIdentity } from '@/components/IdentityProvider';
-import { canProcess } from '@/lib/tiers';
+import { canProcess, isGlobalAdmin } from '@/lib/tiers';
 import { BOARD_STATUSES, DONE_STATUS, MERGED_STATUS } from '@/lib/statuses';
 import { ImageDropzone } from '@/components/ImageDropzone';
 import { RequirementEditForm } from '@/components/RequirementEditForm';
@@ -21,10 +21,11 @@ function fmt(dt) {
 
 export function RequirementDetail({ id }) {
   const { identity } = useIdentity();
-  const processAllowed = canProcess(identity);
   const [editing, setEditing] = useState(false);
   const [data, setData] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [myBrands, setMyBrands] = useState([]);
   // loadError: 최초/재조회 실패 — 화면 전체를 대체한다.
   // actionError: 상태·담당자·이미지 조작 실패 — 이미 불러온 화면은 유지한 채 배너로만 보여준다.
   const [loadError, setLoadError] = useState('');
@@ -35,6 +36,17 @@ export function RequirementDetail({ id }) {
     fetch('/api/team-members')
       .then((res) => res.json())
       .then((d) => setTeamMembers(d.teamMembers ?? []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/projects')
+      .then((res) => res.json())
+      .then((d) => setProjects(d.projects ?? []))
+      .catch(() => {});
+    fetch('/api/my-brands')
+      .then((res) => res.json())
+      .then((d) => setMyBrands(d.brands ?? []))
       .catch(() => {});
   }, []);
 
@@ -53,12 +65,23 @@ export function RequirementDetail({ id }) {
     load();
   }, [load]);
 
+  // 처리 권한은 "지금 선택한 브랜드"가 아니라 이 요구사항 자신의 브랜드 등급으로 판정한다.
+  // 프로젝트 상세 보드에서 다른 브랜드 요구사항으로 넘어올 수 있게 되면서, identity.tier
+  // (선택한 브랜드의 등급)로 판정하면 편집 UI를 띄워놓고 저장은 403이 나거나 그 반대가 된다.
+  const requirementBrandId = data?.requirement?.brand_id ?? identity.brandId;
+  const processAllowed = useMemo(() => {
+    if (isGlobalAdmin(identity)) return true;
+    const tier = myBrands.find((b) => b.id === requirementBrandId)?.tier;
+    // my-brands가 아직 안 왔으면 편집 UI를 먼저 띄우지 않는다(깜빡임 + 오조작 방지).
+    return canProcess({ isGlobalAdmin: false, tier });
+  }, [identity, myBrands, requirementBrandId]);
+
   async function changeStatus(status) {
     setActionError('');
     const res = await fetch(`/api/requirements/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brandId: identity.brandId, status }),
+      body: JSON.stringify({ brandId: requirementBrandId, status }),
     });
     if (!res.ok) {
       const d = await res.json();
@@ -74,7 +97,7 @@ export function RequirementDetail({ id }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        brandId: identity.brandId,
+        brandId: requirementBrandId,
         assignee: assignee === '__none__' ? null : assignee,
       }),
     });
@@ -86,11 +109,26 @@ export function RequirementDetail({ id }) {
     load();
   }
 
+  async function changeProject(nextProjectId) {
+    setActionError('');
+    const res = await fetch(`/api/requirements/${id}/project`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: nextProjectId === 'none' ? null : nextProjectId }),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      setActionError(d.error ?? '프로젝트 변경 실패');
+      return;
+    }
+    load();
+  }
+
   async function uploadNew() {
     if (newFiles.length === 0) return;
     setActionError('');
     const fd = new FormData();
-    fd.append('brandId', identity.brandId);
+    fd.append('brandId', requirementBrandId);
     newFiles.forEach((f) => fd.append('files', f));
     const res = await fetch(`/api/requirements/${id}/images`, { method: 'POST', body: fd });
     if (!res.ok) {
@@ -106,7 +144,7 @@ export function RequirementDetail({ id }) {
     if (!window.confirm('이미지를 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
     setActionError('');
     const res = await fetch(
-      `/api/requirements/${id}/images/${imageId}?brandId=${identity.brandId}`,
+      `/api/requirements/${id}/images/${imageId}?brandId=${requirementBrandId}`,
       { method: 'DELETE' },
     );
     if (!res.ok) {
@@ -280,6 +318,38 @@ export function RequirementDetail({ id }) {
               </Select>
             ) : (
               <p className="font-medium text-slate-900">{r.assignee?.name ?? '미지정'}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-slate-500">프로젝트</p>
+            {processAllowed ? (
+              <Select
+                items={[
+                  { value: 'none', label: '선택 안 함' },
+                  ...projects.map((p) => ({ value: p.id, label: p.name })),
+                ]}
+                value={r.project_id ?? 'none'}
+                onValueChange={changeProject}
+              >
+                <SelectTrigger className="mt-1 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">선택 안 함</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : r.project ? (
+              <Link
+                href={`/projects/${r.project.id}`}
+                className="font-medium text-indigo-600 hover:underline"
+              >
+                {r.project.name}
+              </Link>
+            ) : (
+              <p className="font-medium text-slate-900">-</p>
             )}
           </div>
           <MetaRow label="카테고리" value={r.category?.category_name ?? '-'} />

@@ -21,6 +21,10 @@ export function TopBar() {
         <Link href="/requirements" className="text-slate-500 hover:text-slate-700">
           목록
         </Link>
+        {/* 프로젝트 조회는 로그인만 필요하다 — 3차 실무자도 요구사항을 연결하려면 봐야 한다. */}
+        <Link href="/projects" className="text-slate-500 hover:text-slate-700">
+          프로젝트
+        </Link>
         {processAllowed && (
           <Link href="/requirements/board" className="text-slate-500 hover:text-slate-700">
             보드

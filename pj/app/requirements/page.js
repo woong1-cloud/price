@@ -14,9 +14,10 @@ export default function RequirementsPage() {
   const [requirements, setRequirements] = useState([]);
   const [categories, setCategories] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const [filters, setFilters] = useState({ assignee: '', category: '', priority: '' });
+  const [filters, setFilters] = useState({ assignee: '', category: '', priority: '', project: '' });
   // 직접 setLoading(true/false)를 effect 안에서 호출하지 않고, "이 조회 조건에 대한
   // 응답을 이미 받았는지"를 key 비교로 파생시킨다(react-hooks/set-state-in-effect 회피).
   const [loadedKey, setLoadedKey] = useState('');
@@ -42,6 +43,18 @@ export default function RequirementsPage() {
       .then((res) => res.json())
       .then((d) => setCategories(d.categories ?? []))
       .catch(() => {});
+    Promise.all([
+      fetch(`/api/projects?brandId=${identity.brandId}`).then((r) => r.json()),
+      fetch('/api/projects').then((r) => r.json()),
+    ])
+      .then(([mine, all]) => {
+        const mineList = mine.projects ?? [];
+        const mineIds = new Set(mineList.map((p) => p.id));
+        const others = (all.projects ?? []).filter((p) => !mineIds.has(p.id));
+        // 대부분 자기 브랜드에 전개된 프로젝트를 고르므로 그쪽을 위에 둔다.
+        setProjects([...mineList, ...others]);
+      })
+      .catch(() => {});
   }, [identity.brandId]);
 
   useEffect(() => {
@@ -50,6 +63,7 @@ export default function RequirementsPage() {
     if (filters.assignee) params.set('assignee', filters.assignee);
     if (filters.category) params.set('category', filters.category);
     if (filters.priority) params.set('priority', filters.priority);
+    if (filters.project) params.set('project', filters.project);
     fetch(`/api/requirements?${params.toString()}`)
       .then((res) => res.json().then((d) => ({ res, d })))
       .then(({ res, d }) => {
@@ -95,6 +109,7 @@ export default function RequirementsPage() {
       <FilterBar
         teamMembers={teamMembers}
         categories={categories}
+        projects={projects}
         value={filters}
         onChange={(patch) => setFilters((prev) => ({ ...prev, ...patch }))}
       />
@@ -109,6 +124,7 @@ export default function RequirementsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         categories={categories}
+        projects={projects}
         identity={identity}
         onCreated={refreshRequirements}
       />
