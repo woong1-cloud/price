@@ -5,6 +5,7 @@ import { saveState, loadState, exportJSON, importJSON, loadCloudState, saveCloud
 import { deriveWeekKey } from './utils/weekKey'
 import { filterPayloadByGender } from './utils/kidsFilter'
 import L1_HealthCheck from './components/L1_HealthCheck'
+import GA4Tab from './components/GA4Tab'
 import L2_ProductAnalysis from './components/L2_ProductAnalysis'
 import L3_ActionPanel from './components/L3_ActionPanel'
 import L4_ExhibitionAnalysis from './components/L4_ExhibitionAnalysis'
@@ -15,7 +16,7 @@ import ScrollToTopButton from './components/ScrollToTopButton'
 import IngestStatusBadge from './components/IngestStatusBadge'
 import DataQualityBanner from './components/DataQualityBanner'
 import { previousWeekKey, mostRecentWeekKey } from './utils/weekNav'
-import { mergePayloads, listPeriods, weekKeysInPeriod, previousPeriodKey, periodLabel } from './utils/aggregatePeriod'
+import { mergePayloads, listPeriods, weekKeysInPeriod, previousPeriodKey, periodLabel, dateRangeOfWeeks } from './utils/aggregatePeriod'
 import { checkDataQuality } from './utils/dataQuality'
 import './index.css'
 
@@ -66,6 +67,7 @@ const TABS = [
   { id: 'l3', label: 'L3 구역별 효율', icon: '🎪', desc: '기획전·카테고리·검색 구역별 노출/클릭/CTR/매출 효율 — MD별 담당 기획전 드릴다운' },
   { id: 'l4', label: 'L4 액션 패널', icon: '🎯', desc: '분석 기반 자동 감지 인사이트 & 액션 카드' },
   { id: 'kids', label: '키즈', icon: '🧒', desc: '스타일코드 성별코드=키즈 상품만 필터링한 실적(자사몰 데이터 기준)' },
+  { id: 'ga4', label: 'GA4 유입·전환', icon: '📈', desc: 'GA4 결제 퍼널 · 유입 채널 (daily_ga4_* 직접 조회, needadm과 별개)' },
 ]
 
 // ─── TabButton ────────────────────────────────────────────────────────────────
@@ -93,6 +95,26 @@ function TabButton({ tab, active, insightCount, onClick }) {
   )
 }
 
+// ─── 선택된 기간(주/월/분기)의 날짜 범위 계산 ────────────────────────────────
+// GA4 탭과 L1(종합진단)의 목표 대비 섹션이 공통으로 쓰는 로직 — 상단
+// 주/월/분기 토글과 동일한 기간을 daily_* 테이블 조회에 쓸 ISO 날짜 범위로 바꾼다.
+// week 모드는 선택된 그 주, month/quarter 모드는 그 기간에 속한 주들의
+// 최소~최대 날짜를 쓴다.
+function computeSelectedRange(periodMode, periodKey, selectedWeekKey, snapshotIndex) {
+  if (periodMode === 'week') {
+    const meta = snapshotIndex.find(r => r.week_key === selectedWeekKey)
+    return {
+      range: meta?.week_start && meta?.week_end ? { start: meta.week_start, end: meta.week_end } : null,
+      label: meta?.week_label || null,
+    }
+  }
+  const weeks = periodKey ? weekKeysInPeriod(snapshotIndex, periodMode, periodKey) : []
+  return {
+    range: dateRangeOfWeeks(snapshotIndex, weeks),
+    label: periodKey ? periodLabel(periodKey, periodMode) : null,
+  }
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const savedState = loadState()
@@ -104,6 +126,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('l1')
+  const [zoneNavRequest, setZoneNavRequest] = useState(null) // L1 퍼널 → L3 구역별 효율분석 드릴다운 이동
+  const goToZone = (group) => { setActiveTab('l3'); setZoneNavRequest({ group, nonce: Date.now() }) }
   const [syncStatus, setSyncStatus] = useState(cloudEnabled ? 'loading' : 'offline') // loading|saving|synced|error|offline
   const [cloudUpdatedAt, setCloudUpdatedAt] = useState(null)
   const [showSnapshotModal, setShowSnapshotModal] = useState(false)
@@ -744,11 +768,18 @@ export default function App() {
           </div>
 
           <div style={{ paddingTop: 20 }}>
-            {activeTab === 'l1' && derived && (
-              <L1_HealthCheck derived={derived} salesByDateMetrics={salesByDateMetrics} searchMetrics={searchMetrics} />
-            )}
+            {activeTab === 'l1' && derived && (() => {
+              const { range } = computeSelectedRange(periodMode, periodKey, selectedWeekKey, snapshotIndex)
+              return (
+                <L1_HealthCheck
+                  derived={derived} salesByDateMetrics={salesByDateMetrics} searchMetrics={searchMetrics}
+                  storeCorner={thisWeek.storeCorner} onZoneClick={goToZone}
+                  periodStart={range?.start} periodEnd={range?.end}
+                />
+              )
+            })()}
             {activeTab === 'l2' && derived && <L2_ProductAnalysis derived={derived} />}
-            {activeTab === 'l3' && <L4_ExhibitionAnalysis storeCorner={thisWeek.storeCorner} prevStoreCorner={lastWeek.storeCorner} />}
+            {activeTab === 'l3' && <L4_ExhibitionAnalysis storeCorner={thisWeek.storeCorner} prevStoreCorner={lastWeek.storeCorner} zoneNavRequest={zoneNavRequest} />}
             {activeTab === 'l4' && derived && <L3_ActionPanel derived={derived} storeCorner={thisWeek.storeCorner} />}
             {activeTab === 'kids' && kidsDerived && (
               <>
@@ -765,6 +796,27 @@ export default function App() {
                 </div>
               </>
             )}
+            {activeTab === 'ga4' && (() => {
+              // 상단 주/월/분기 토글과 동일한 기간 로직(computeSelectedRange, L1과 공유).
+              // 전주 대비(WoW) 비교를 위한 직전 기간 범위는 GA4 탭에서만 필요해 여기서 계산한다.
+              const { range, label } = computeSelectedRange(periodMode, periodKey, selectedWeekKey, snapshotIndex)
+              let prevRange = null
+              if (periodMode === 'week') {
+                const prevKey = selectedWeekKey ? previousWeekKey(snapshotIndex, selectedWeekKey) : null
+                const prevMeta = prevKey ? snapshotIndex.find(r => r.week_key === prevKey) : null
+                prevRange = prevMeta?.week_start && prevMeta?.week_end ? { start: prevMeta.week_start, end: prevMeta.week_end } : null
+              } else {
+                const prevKey = periodKey ? previousPeriodKey(snapshotIndex, periodMode, periodKey) : null
+                const prevWeeks = prevKey ? weekKeysInPeriod(snapshotIndex, periodMode, prevKey) : []
+                prevRange = dateRangeOfWeeks(snapshotIndex, prevWeeks)
+              }
+              return (
+                <GA4Tab
+                  weekStart={range?.start} weekEnd={range?.end} weekLabel={label}
+                  prevWeekStart={prevRange?.start} prevWeekEnd={prevRange?.end}
+                />
+              )
+            })()}
           </div>
         </div>
       )}
