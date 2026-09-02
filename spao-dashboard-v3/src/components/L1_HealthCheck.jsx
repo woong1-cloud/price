@@ -9,6 +9,7 @@ import { fmt억, fmtComma, fmtPct } from '../utils/metrics'
 import SalesScoreboard from './SalesScoreboard'
 import SearchSection from './SearchSection'
 import CouponSection from './CouponSection'
+import TargetProgressSection from './TargetProgressSection'
 
 // ─── 색상 헬퍼 ───────────────────────────────────────────────────────────────
 const CHANNEL_COLORS = ['#378ADD', '#5DCAA5', '#7F77DD', '#EF9F27', '#E24B4A', '#B4B2A9']
@@ -681,7 +682,7 @@ function QuickSummary({ derived, salesByDateMetrics }) {
 }
 
 // ─── L1 메인 ─────────────────────────────────────────────────────────────────
-export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetrics }) {
+export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetrics, storeCorner, onZoneClick, periodStart, periodEnd }) {
   const { kpis, channelData, cartDerived, genderData, femaleAge, maleAge,
     visitMetrics, storeMetrics, hasWoW, thisP, lastP, newVsReturn } = derived
 
@@ -692,7 +693,22 @@ export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetr
         salesByDateMetrics={salesByDateMetrics}
         visitMetrics={visitMetrics}
         cartSigma={cartDerived}
+        storeMetrics={storeMetrics}
+        storeCorner={storeCorner}
+        searchMetrics={searchMetrics}
+        onZoneClick={onZoneClick}
       />
+
+      {/* ── 목표 대비 · 전년 비교 (periodStart/periodEnd 없으면 렌더 안 함 — 키즈 필터 화면 등) ── */}
+      {periodStart && periodEnd && (
+        <TargetProgressSection
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          revenue={kpis?.[0]?.rawValue || 0}
+          convRate={cartDerived?.cartConvRate || 0}
+          aov={salesByDateMetrics?.aov ?? cartDerived?.aov ?? 0}
+        />
+      )}
 
       {/* WoW 기간 안내 */}
       {hasWoW ? (
