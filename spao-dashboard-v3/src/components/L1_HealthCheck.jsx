@@ -686,6 +686,13 @@ export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetr
   const { kpis, channelData, cartDerived, genderData, femaleAge, maleAge,
     visitMetrics, storeMetrics, hasWoW, thisP, lastP, newVsReturn } = derived
 
+  // 목표 시트의 "전환율"은 유입(UV) 대비 실주문 비율이다(사이트 전환율) —
+  // SalesScoreboard의 siteConv와 동일한 공식. cartDerived.cartConvRate(장바구니
+  // 담기 대비 전환율)는 퍼널의 더 늦은 단계라 다른 지표이므로 쓰면 안 된다.
+  const targetTotalUV = visitMetrics?.totalUV || visitMetrics?.channelKPIs?.reduce((s, k) => s + k.uv, 0) || 0
+  const targetRealOrderCnt = salesByDateMetrics?.sigma?.realOrderCnt || 0
+  const siteConvRate = targetTotalUV > 0 ? targetRealOrderCnt / targetTotalUV * 100 : 0
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* ── 기간별 매출 스코어보드 ── */}
@@ -705,7 +712,7 @@ export default function L1_HealthCheck({ derived, salesByDateMetrics, searchMetr
           periodStart={periodStart}
           periodEnd={periodEnd}
           revenue={kpis?.[0]?.rawValue || 0}
-          convRate={cartDerived?.cartConvRate || 0}
+          convRate={siteConvRate}
           aov={salesByDateMetrics?.aov ?? cartDerived?.aov ?? 0}
         />
       )}
