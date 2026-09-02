@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { budgetStoreCorner, fitPayloadForCloud, isStatementTimeout } from './storage'
+import {
+  budgetStoreCorner, fitPayloadForCloud, isStatementTimeout,
+  shiftDaysISO, aggregateDailyTargetRows, aggregateLastYearActualRows,
+} from './storage'
 
 // 코너 c개, 각 코너에 컨텐츠 perCorner개를 가진 storeCorner 를 생성.
 // realAmt 는 코너 인덱스 역순으로 커지게 둬서(=코너0이 최고매출) 우선순위 검증을 쉽게 한다.
@@ -113,5 +116,81 @@ describe('isStatementTimeout', () => {
     expect(isStatementTimeout({ code: '23505', message: 'duplicate key' })).toBe(false)
     expect(isStatementTimeout(null)).toBe(false)
     expect(isStatementTimeout(undefined)).toBe(false)
+  })
+})
+
+describe('shiftDaysISO', () => {
+  it('364일 전 날짜를 계산한다(동요일 매칭)', () => {
+    expect(shiftDaysISO('2026-08-26', -364)).toBe('2025-08-27')
+    expect(shiftDaysISO('2026-09-01', -364)).toBe('2025-09-02')
+  })
+
+  it('364 = 52×7 이라 요일이 항상 그대로 맞는다', () => {
+    const toWeekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay()
+    expect(toWeekday(shiftDaysISO('2026-08-26', -364))).toBe(toWeekday('2026-08-26'))
+  })
+
+  it('양수 일수도 지원한다(미래 방향)', () => {
+    expect(shiftDaysISO('2026-01-01', 1)).toBe('2026-01-02')
+  })
+})
+
+describe('aggregateDailyTargetRows', () => {
+  it('매출 목표는 합산, 전환율/객단가 목표는 평균낸다', () => {
+    const rows = [
+      { revenue_target: 100, conv_rate_target: 4, aov_target: 50000 },
+      { revenue_target: 200, conv_rate_target: 6, aov_target: 60000 },
+    ]
+    const out = aggregateDailyTargetRows(rows)
+    expect(out.revenueTarget).toBe(300)
+    expect(out.convRateTarget).toBe(5)
+    expect(out.aovTarget).toBe(55000)
+    expect(out.hasTarget).toBe(true)
+  })
+
+  it('빈 배열이면 hasTarget=false, 비율값은 null', () => {
+    const out = aggregateDailyTargetRows([])
+    expect(out.hasTarget).toBe(false)
+    expect(out.revenueTarget).toBe(0)
+    expect(out.convRateTarget).toBeNull()
+    expect(out.aovTarget).toBeNull()
+  })
+
+  it('null/undefined 입력도 빈 배열처럼 처리한다', () => {
+    expect(aggregateDailyTargetRows(null).hasTarget).toBe(false)
+    expect(aggregateDailyTargetRows(undefined).hasTarget).toBe(false)
+  })
+})
+
+describe('aggregateLastYearActualRows', () => {
+  it('전환율/객단가는 SUM/SUM 가중 계산(단순 평균이 아님)', () => {
+    // 하루는 세션 많고 전환율 낮음, 하루는 세션 적고 전환율 높음 —
+    // 단순 평균과 가중 평균이 달라야 가중 계산임을 검증할 수 있다.
+    const rows = [
+      { revenue: 1000000, orders: 10, sessions: 1000 }, // 전환율 1%
+      { revenue: 500000, orders: 10, sessions: 100 },   // 전환율 10%
+    ]
+    const out = aggregateLastYearActualRows(rows)
+    expect(out.revenue).toBe(1500000)
+    expect(out.orders).toBe(20)
+    expect(out.sessions).toBe(1100)
+    // SUM(orders)/SUM(sessions) = 20/1100*100 ≈ 1.818% (단순평균 5.5%와 다름)
+    expect(out.convRate).toBeCloseTo(20 / 1100 * 100, 5)
+    expect(out.aov).toBe(1500000 / 20)
+    expect(out.hasLastYear).toBe(true)
+  })
+
+  it('빈 배열이면 hasLastYear=false, 비율값은 null', () => {
+    const out = aggregateLastYearActualRows([])
+    expect(out.hasLastYear).toBe(false)
+    expect(out.convRate).toBeNull()
+    expect(out.aov).toBeNull()
+  })
+
+  it('세션/주문이 0이면 나눗셈 대신 null을 반환한다', () => {
+    const out = aggregateLastYearActualRows([{ revenue: 0, orders: 0, sessions: 0 }])
+    expect(out.hasLastYear).toBe(true)
+    expect(out.convRate).toBeNull()
+    expect(out.aov).toBeNull()
   })
 })

@@ -451,6 +451,38 @@ export async function getDailyIngestStatus() {
   }
 }
 
+// ─── GA4 탭 데이터 (weekly_snapshots는 건드리지 않음 — daily_ga4_* 직접 조회) ──
+// 선택된 주차의 week_start~week_end 범위로 필터해서 SUM 계산은 화면(GA4Tab.jsx)에서 한다.
+// 여기서는 원본 행만 그대로 반환.
+export async function getGA4WeeklyData(weekStart, weekEnd) {
+  if (!supabase || !weekStart || !weekEnd) return null
+  try {
+    const [funnelRes, channelRes, itemRes, audienceRes] = await Promise.all([
+      supabase.from('daily_ga4_funnel').select('*').gte('stat_date', weekStart).lte('stat_date', weekEnd),
+      supabase.from('daily_ga4_channel').select('*').gte('stat_date', weekStart).lte('stat_date', weekEnd),
+      supabase.from('daily_ga4_item').select('*').gte('stat_date', weekStart).lte('stat_date', weekEnd),
+      supabase.from('daily_ga4_audience').select('*').gte('stat_date', weekStart).lte('stat_date', weekEnd),
+    ])
+    if (funnelRes.error || channelRes.error || itemRes.error || audienceRes.error) {
+      console.warn('GA4 데이터 조회 실패:', funnelRes.error || channelRes.error || itemRes.error || audienceRes.error)
+      return null
+    }
+    const funnelRows = funnelRes.data || []
+    const channelRows = channelRes.data || []
+    const itemRows = itemRes.data || []
+    const audienceRows = audienceRes.data || []
+    const lastIngestedAt = [...funnelRows, ...channelRows, ...itemRows, ...audienceRows]
+      .map(r => r._ingested_at)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || null
+    return { funnelRows, channelRows, itemRows, audienceRows, lastIngestedAt }
+  } catch (e) {
+    console.warn('GA4 데이터 조회 예외:', e)
+    return null
+  }
+}
+
 // 로컬 캐시 저장.
 // 전체 주간 데이터(코너 집계 포함)는 localStorage 한도(~5MB)를 넘을 수 있다.
 // 클라우드가 공유 데이터의 원천이므로 localStorage 는 "있으면 좋은" 즉시 로드 캐시일 뿐이다.
@@ -526,4 +558,71 @@ export function importJSON(file) {
     reader.onerror = () => reject(new Error('파일 읽기 실패'))
     reader.readAsText(file)
   })
+}
+
+// ─── 목표 대비 · 전년 비교 (daily_target / daily_last_year_actual) ────────────
+// stat_date 에서 364일(52주) 오프셋 — 364 = 52×7 이라 요일이 항상 그대로
+// 맞는 "동요일 매칭" 방식. dateISO는 'YYYY-MM-DD', days는 음수 허용.
+export function shiftDaysISO(dateISO, days) {
+  const d = new Date(`${dateISO}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// 목표값은 MD가 정한 "비율값" 자체라 기간 내 일별 평균을 낸다(합산 대상 아님).
+// 매출 목표만 SUM(일별 합산이 자연스러운 흐름 지표).
+export function aggregateDailyTargetRows(rows) {
+  const list = rows || []
+  const revenueTarget = list.reduce((s, r) => s + (Number(r.revenue_target) || 0), 0)
+  const convRateTarget = list.length > 0
+    ? list.reduce((s, r) => s + (Number(r.conv_rate_target) || 0), 0) / list.length
+    : null
+  const aovTarget = list.length > 0
+    ? list.reduce((s, r) => s + (Number(r.aov_target) || 0), 0) / list.length
+    : null
+  return { revenueTarget, convRateTarget, aovTarget, hasTarget: list.length > 0 }
+}
+
+// 작년 실적은 실측치라 SUM/SUM 가중 계산 — GA4Tab과 동일 원칙(전환율은
+// SUM(주문)/SUM(유입)로 계산, 일별 평균을 내지 않는다. GA4Tab.jsx 파일
+// 상단 주석 참고).
+export function aggregateLastYearActualRows(rows) {
+  const list = rows || []
+  const revenue = list.reduce((s, r) => s + (Number(r.revenue) || 0), 0)
+  const orders = list.reduce((s, r) => s + (Number(r.orders) || 0), 0)
+  const sessions = list.reduce((s, r) => s + (Number(r.sessions) || 0), 0)
+  return {
+    revenue,
+    orders,
+    sessions,
+    convRate: sessions > 0 ? orders / sessions * 100 : null,
+    aov: orders > 0 ? revenue / orders : null,
+    hasLastYear: list.length > 0,
+  }
+}
+
+// periodStart~periodEnd(이번 기간)의 목표 달성률 + 전년 동요일(364일 전) 대비를
+// 계산해 반환한다. 실적값 자체는 이 함수가 계산하지 않는다 — 이미 있는 N.E.E.D
+// 파이프라인 숫자(salesByDateMetrics/cartDerived)를 화면(TargetProgressSection)이
+// props로 받아 그대로 쓴다. 여기서는 "목표"와 "작년"만 가져온다.
+export async function getTargetProgressData(periodStart, periodEnd) {
+  if (!supabase || !periodStart || !periodEnd) return null
+  try {
+    const lyStart = shiftDaysISO(periodStart, -364)
+    const lyEnd = shiftDaysISO(periodEnd, -364)
+    const [targetRes, lyRes] = await Promise.all([
+      supabase.from('daily_target').select('*').gte('stat_date', periodStart).lte('stat_date', periodEnd),
+      supabase.from('daily_last_year_actual').select('*').gte('stat_date', lyStart).lte('stat_date', lyEnd),
+    ])
+    if (targetRes.error || lyRes.error) {
+      console.warn('목표 대비 데이터 조회 실패:', targetRes.error || lyRes.error)
+      return null
+    }
+    const { hasTarget, ...target } = aggregateDailyTargetRows(targetRes.data)
+    const { hasLastYear, ...lastYear } = aggregateLastYearActualRows(lyRes.data)
+    return { ...target, hasTarget, lastYear, hasLastYear, lyRange: { start: lyStart, end: lyEnd } }
+  } catch (e) {
+    console.warn('목표 대비 데이터 조회 예외:', e)
+    return null
+  }
 }
