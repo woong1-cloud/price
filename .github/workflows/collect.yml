@@ -31,12 +31,19 @@ jobs:
         run: |
           python - <<'EOF'
           import json, os, sys, urllib.request, urllib.error
-          sys.path.insert(0, "spao_monitor")
-          try:
-              from brands import BRANDS
-          except ImportError:                 # main 에 아직 brands.py 가 없을 때 (멀티브랜드 코드 반영 전)
-              BRANDS = {"spao": {}}
           base = os.environ["CLOUD_URL"].rsplit("/", 1)[0]          # https://.../api
+          # 브랜드 목록: 배포된 서버(/api/brands) → 저장소 brands.py → spao 순
+          try:
+              with urllib.request.urlopen(f"{base}/brands", timeout=30) as r:
+                  BRANDS = [b["id"] for b in json.loads(r.read())]
+          except Exception as e:
+              print("서버 브랜드 목록 실패:", e)
+              sys.path.insert(0, "spao_monitor")
+              try:
+                  from brands import BRANDS
+              except ImportError:             # main 에 아직 brands.py 가 없을 때
+                  BRANDS = ["spao"]
+          print("brands:", list(BRANDS))
           failed = 0
           for brand in BRANDS:
               for channel in ("musinsa", "eland", "official"):
