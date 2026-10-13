@@ -1,0 +1,55 @@
+name: Collect Server-side Channels
+
+# 서버(노아바이브)에 "지금 수집해" 신호만 보낸다 — 무신사·이랜드몰·자사몰은 서버가 직접 수집해
+# 바이브베이스 스냅샷에 저장하고, 화면 요청은 그 스냅샷을 읽기만 한다 (docs/멀티브랜드_확장계획.md 7장).
+# 브랜드 목록은 spao_monitor/brands.py 를 읽는다 → 브랜드 추가 시 이 파일은 고칠 필요 없음.
+# ※ 예약 실행은 main 브랜치에 있을 때만 동작한다.
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'     # 30분마다 (지그재그 15분 작업과 겹치지 않게 7분·37분)
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Trigger collection per brand × channel
+        env:
+          CLOUD_URL: ${{ secrets.CLOUD_URL }}       # .../api/push-channel — 같은 서버의 /api/collect 로 바꿔 쓴다
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+        run: |
+          python - <<'EOF'
+          import json, os, sys, urllib.request, urllib.error
+          sys.path.insert(0, "spao_monitor")
+          try:
+              from brands import BRANDS
+          except ImportError:                 # main 에 아직 brands.py 가 없을 때 (멀티브랜드 코드 반영 전)
+              BRANDS = {"spao": {}}
+          base = os.environ["CLOUD_URL"].rsplit("/", 1)[0]          # https://.../api
+          failed = 0
+          for brand in BRANDS:
+              for channel in ("musinsa", "eland", "official"):
+                  body = json.dumps({"secret": os.environ["PUSH_SECRET"], "brand": brand, "channel": channel}).encode()
+                  req = urllib.request.Request(f"{base}/collect", data=body, headers={"Content-Type": "application/json"})
+                  try:
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          print(brand, channel, r.read().decode()[:200])
+                  except urllib.error.HTTPError as e:
+                      failed += 1
+                      print(brand, channel, "HTTP", e.code, e.read().decode()[:200])
+                  except Exception as e:
+                      failed += 1
+                      print(brand, channel, "ERROR", e)
+          sys.exit(1 if failed else 0)
+          EOF
