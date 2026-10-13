@@ -1,6 +1,6 @@
 name: Collect Server-side Channels
 
-# 서버(노아바이브)에 "지금 수집해" 신호만 보낸다 — 무신사·이랜드몰·자사몰은 서버가 직접 수집해
+# 서버(노아바이브)에 "지금 수집해" 신호만 보낸다 — 무신사·이랜드몰·자사몰·DW 정판가는 서버가 직접 수집해
 # 바이브베이스 스냅샷에 저장하고, 화면 요청은 그 스냅샷을 읽기만 한다 (docs/멀티브랜드_확장계획.md 7장).
 # 브랜드 목록은 spao_monitor/brands.py 를 읽는다 → 브랜드 추가 시 이 파일은 고칠 필요 없음.
 # ※ 예약 실행은 main 브랜치에 있을 때만 동작한다.
@@ -46,7 +46,7 @@ jobs:
           print("brands:", list(BRANDS))
           failed = 0
           for brand in BRANDS:
-              for channel in ("musinsa", "eland", "official"):
+              for channel in ("musinsa", "eland", "official", "dw"):   # dw 는 서버가 하루 1번만 실제 조회
                   body = json.dumps({"secret": os.environ["PUSH_SECRET"], "brand": brand, "channel": channel}).encode()
                   req = urllib.request.Request(f"{base}/collect", data=body, headers={"Content-Type": "application/json"})
                   try:
